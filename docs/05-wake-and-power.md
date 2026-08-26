@@ -131,6 +131,31 @@ button; nothing is damaged.
 
 Update this section once the test has run.
 
+## The watcher that will update it for you
+
+`AI-EmailWatch` is a scheduled task that survives reboots and resumes from S3 —
+which matters, because a watcher living inside a chat session cannot outlive the
+very events it is watching for. Every 15 minutes, and 2 minutes after each boot,
+it appends `powercfg /lastwake` plus the Kernel-Power 42/107 counts to
+`logs\wake-evidence.log`, and coordinates over an email thread with whoever is
+running the test from the other end.
+
+The moment the box demonstrably wakes from S3 it writes
+`state\wake-verified.json`, queues one agent job to report the result and
+correct this page, then **disables its own task**.
+
+```powershell
+powershell -File C:\AI-Server\scripts\email-watch.ps1 -Status   # where things stand
+powershell -File C:\AI-Server\scripts\email-watch.ps1 -Stop     # switch it off now
+```
+
+It is self-limiting three ways: it stops on verification, expires after 72
+hours, and never has more than one job in flight. An unattended agent loop that
+cannot switch itself off is a token leak.
+
+The verdict comes from `powercfg`, not from an agent's reading of an email —
+the machine is the witness.
+
 ## Never sleep the machine yourself
 
 Exactly one thing decides: the queue runner. Do not call `SetSuspendState`,
