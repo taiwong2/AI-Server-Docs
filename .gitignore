@@ -1,0 +1,6 @@
+# Nothing generated lives here, but keep the usual noise out.
+.DS_Store
+Thumbs.db
+*.log
+__pycache__/
+*.pyc
