@@ -33,7 +33,7 @@ behaviour.
 |---|---|---|
 | A job scheduled for a future time | at that time | nothing — armed before it sleeps |
 | Wake-on-LAN from the LAN | seconds | a device on `192.168.1.0/24` |
-| **Wake-on-LAN via the tailnet relay** | seconds | the `wake-relay` node online |
+| **Relay HTTPS URL / SSH (from anywhere)** | seconds | the `wake-relay` node online |
 | Its own heartbeat | ≤ `heartbeat_minutes` (20) | nothing |
 
 Before suspending, the runner arms a `WakeToRun` scheduled task for the
@@ -70,19 +70,32 @@ beyond-LAN path is:
 you, anywhere  ->  Tailscale  ->  wake-relay  ->  magic packet on 192.168.1.255  ->  server wakes
 ```
 
-```bash
-ssh <user>@100.127.179.9 './wake-pc.sh --send'
+The relay now exposes the wake three ways (built and proven end-to-end
+2026-08-25):
+
 ```
+Browser / phone bookmark:  https://wake-relay.tail215694.ts.net/wake
+SSH:                       ssh root@wake-relay wake-ai-server
+SSH and wait for it up:    ssh root@wake-relay "wake-ai-server --wait"
+```
+
+The HTTPS endpoint is `tailscale serve` fronting a tiny local HTTP server on the
+relay. It is **tailnet-only** — never exposed to the public internet. Proven:
+hitting the URL from off the server's LAN landed the magic packet at the NIC on
+both ports, MAC matched, three times over.
 
 This is why "no instant wake from off the LAN" is **wrong for this network**.
 Without a relay it would be true — the Netgear cannot forward a broadcast from
 the WAN or hold a static ARP entry — but the relay makes the router's limitation
 irrelevant.
 
-**The relay only works while the relay is awake.** A MacBook that sleeps or goes
-offline takes the beyond-LAN instant wake with it; the 20-minute heartbeat is
-the fallback. If the relay is a laptop, disable its sleep or accept the
-fallback.
+**The relay** is a Mac mini (`Yichuns-Mac-mini`, 192.168.1.63), kept awake with
+`pmset disablesleep 1` so it can always relay. Its pieces:
+`/usr/local/bin/wake-ai-server`, `wake-http-server.py` under LaunchDaemon
+`com.tai.wakehttp` (KeepAlive, RunAtLoad), and the `tailscale serve` mapping —
+all of which survive a relay reboot. A README lives at
+`/usr/local/bin/WAKE-RELAY-README.md` on the mini. If the relay is ever offline,
+the 20-minute heartbeat is the fallback.
 
 ## Proving a magic packet arrives — without sleeping anything
 
