@@ -53,28 +53,28 @@ agentic tool loop: `run_shell` (PowerShell), `read_file`, `write_file`,
   `QWEN_REASONING_EFFORT` = low|medium|xhigh).
 - Try it: `python C:\AI-Server\qwen-agent\cli.py --repl --session test`
 
-## AI administrator — in progress
+## AI administrator — built (2026-08-27)
 
-Goal: a role-aware admin you (and agents) chat with, that manages scheduling,
-resources and access. **Status 2026-08-27: designed, not yet built.** It depends
-on the job-queue runner being installed (see [Wake and power](05-wake-and-power.md))
-and a dedicated admin Gmail account.
+A role-aware admin you and other agents talk to (by **email** to
+twongclaude@gmail.com, or a Discord **`admin-*`** channel) that manages
+scheduling, the GPU/job queue, per-agent disk quotas, and services. Full details
+in `C:\AI-Server\ai-admin\README.md`. Summary:
 
-Planned shape:
+- **Roles** (`state\ai-admin\roles.json`): `admin` (Tai, unrestricted) /
+  `developer` (e.g. Antoine — 50 GB disk cap, own workspace, may schedule) /
+  `guest` (default, ignored). Every request is evaluated against the sender's role.
+- **Brain**: a role-aware headless Claude session; the requester identity is
+  **pinned** so a prompt-injected request can't escalate. Caps are enforced in
+  `admin_tools.py`, not just the prompt.
+- **Capabilities**: `gpu-status`, `queue-status`, `list-jobs`, `schedule`
+  (queues a job, wakes the box), `disk-set` (per-agent **VHDX** workspace —
+  create/resize, hard-enforced via diskpart through the admin bridge), and
+  `service` (start/stop COBBLEVERSE so it stops pinning the box awake, admin only).
+- **Escalation**: over-cap requests (e.g. a developer asking for 200 GB) are
+  denied with an explanation and pointed at admin approval — never bypassed.
+- **Intake**: `email_intake.py --loop` polls twongclaude via the admin Workspace
+  MCP (:8001) and auto-starts from `start-services.ps1`; `admin-*` Discord
+  channels route to the same brain.
 
-- **Roles** (`roles.json`): identity (Gmail / Discord id) -> role. `admin` (Tai)
-  = unrestricted; `developer` (e.g. Antoine) = request resources up to caps, run
-  jobs, manage own workspace; `guest` = read-only. Every request is evaluated
-  against the requester's role.
-- **Intake**: a dedicated admin Gmail + the Discord bridge, feeding one handler.
-- **Brain**: a role-aware Claude session per requester with admin tools.
-- **Capabilities**: schedule/queue jobs (`jobqueue.py` + `gpulease.py`), manage
-  cron schedules, start/stop services (incl. COBBLEVERSE so it stops pinning the
-  box awake), report status, and **per-agent disk quotas via VHDX** — a
-  fixed-size virtual disk per agent so "resize Antoine 20 GB -> 40 GB" is a real,
-  enforced `Resize-VHD`, without a full VM.
-- **Autonomy + escalation**: acts directly within a role's caps; escalates
-  over-cap requests to the admin for approval. Every action audit-logged.
-
-The first concrete request driving the design: a developer agent asking to raise
-its workspace from 20 GB to 40 GB — handled by the VHDX quota primitive above.
+The driving example — "raise Antoine 20 GB → 40 GB" — is a real, enforced
+`quota.py resize` (verified end-to-end).
