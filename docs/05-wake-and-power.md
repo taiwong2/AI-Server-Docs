@@ -3,25 +3,48 @@
 The machine sleeps when nobody needs it and wakes when there is work. This page
 is how that works and how to wake it yourself.
 
+> **PREREQUISITE — the runner must be installed, or none of this happens.**
+> Everything below is driven by the resident `AI-JobQueue` scheduled task
+> (SYSTEM, AtStartup, restart-on-fail). If that task is missing, the queue is
+> not serviced, the box never sleeps or wakes on schedule, and a job scheduled
+> "right now" will not run. Check and install:
+> ```powershell
+> Get-ScheduledTask -TaskName AI-JobQueue        # should exist and be Running/Ready
+> # if missing, once, as Administrator:
+> powershell -ExecutionPolicy Bypass -File C:\AI-Server\scripts\install-jobqueue.ps1
+> ```
+> Registering SYSTEM WakeToRun tasks needs elevation, so the install is a
+> one-time admin step; after it, the task survives every reboot.
+
 ## When it sleeps
 
-Sleep needs **all** of these, continuously, for `grace_minutes` (default 8):
+Sleep needs **all** of these, continuously, for `grace_minutes` (currently **10**,
+set via `state\jobqueue.json`; code default is 8):
 
 - nothing runnable in the queue
 - no live GPU lease
-- no attended logon session (RDP with recent input)
-- no connected Sunshine stream
+- no attended logon session (RDP/SSH with recent input)
+- no connected Sunshine (Moonlight) stream
 - console idle for at least `input_idle_minutes` (default 15)
 - nothing listening on a `busy_ports` entry (default `[25565]`)
+
+> **Intended keep-awake behaviour (owner, 2026-08-27):** while an SSH connection
+> or a Moonlight/Sunshine session is live the box stays awake; after the last one
+> disconnects it stays up for the grace window (10 min) and then sleeps. Sunshine
+> is detected directly; SSH is meant to register as an attended session. Verify
+> the SSH path once the runner is installed — `jobqueue.py status` over a live
+> SSH connection should list SSH among the reasons sleep is blocked.
 
 `python C:\AI-Server\scripts\jobqueue.py status` names whichever gate is
 holding it awake. If the box is not sleeping when you expect, that command is
 the answer, not a guess.
 
-> **The Minecraft server on 25565 blocks sleep whenever it is running.** That is
-> correct — people are connected — but it means auto-sleep effectively never
-> fires while it is up. Remove the port from `busy_ports` when the server
-> retires.
+> **The Minecraft server on 25565 blocks sleep whenever it is running.** While
+> COBBLEVERSE is up the box stays on 24/7, so the 10-minute sleep policy only
+> applies when the server is stopped. **Planned (2026-08-27):** the AI
+> administrator will start/stop COBBLEVERSE on demand so it no longer pins the
+> box awake permanently. Until that ships, stop the server (or remove 25565 from
+> `busy_ports`) if you want the box to sleep.
 
 It suspends to **S3**, not hibernate. Hibernation is disabled precisely so that
 `SetSuspendState` reaches S3, because S4 changes both Wake-on-LAN and wake-timer

@@ -39,6 +39,7 @@ The three things that make it different from a laptop you SSH into:
 | Reach it from another machine | [Remote access](docs/06-remote-access.md) |
 | Not repeat an expensive mistake | [Best practices](docs/07-best-practices.md) |
 | Fix something that is broken | [Troubleshooting](docs/08-troubleshooting.md) |
+| Chat with it (Discord), run the local model as an agent | [Agents and chat](docs/09-agents-and-chat.md) |
 
 Agent skills live in [`skills/`](skills/) — drop them into a project's
 `.claude/skills/` (or your harness's equivalent) and an agent gains these
