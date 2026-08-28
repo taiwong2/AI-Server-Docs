@@ -72,6 +72,12 @@ in `C:\AI-Server\ai-admin\README.md`. Summary:
   `service` (start/stop COBBLEVERSE so it stops pinning the box awake, admin only).
 - **Escalation**: over-cap requests (e.g. a developer asking for 200 GB) are
   denied with an explanation and pointed at admin approval — never bypassed.
+- **Tai self-identification (owner policy)**: anyone who identifies as Tai (name
+  "Tai"/"Tai Wong", or a body claim like "I am Tai" / "it's Tai" / "- Tai") is
+  trusted as **admin**, whatever the sending address. Convenient but
+  **deliberately spoofable** — a text claim is not proof, so effectively anyone
+  who writes "I am Tai" gets full admin. Every elevation is audit-logged with the
+  real sender; disable with `trust_tai_self_identification:false` in `roles.json`.
 - **Intake**: `email_intake.py --loop` polls twongclaude via the admin Workspace
   MCP (:8001) and auto-starts from `start-services.ps1`; `admin-*` Discord
   channels route to the same brain.
