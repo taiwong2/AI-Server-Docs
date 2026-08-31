@@ -40,7 +40,14 @@ DISCORD_ADMIN = r"C:\AI-Server\scripts\discord_admin.py"
 DISCORD_PY = r"C:\Users\poopl\AppData\Local\Programs\Python\Python312\python.exe"
 CHANNEL = os.environ.get("RESEARCH_CHANNEL_ID", "1544075375066222652")
 
-MAX_NOTES_CHARS = 20000   # per cluster, when feeding SYNTH
+N_CLUSTERS = int(os.environ.get("RESEARCH_CLUSTERS", "5"))
+
+# TOTAL budget for notes fed to SYNTH, split across clusters. This is a cap on
+# the SYNTH prompt, not on the research: every dive is written to .notes.md in
+# full regardless. Raising N_CLUSTERS buys more reading, not a longer prompt --
+# which matters because the model's context has to hold this plus its output.
+TOTAL_NOTES_CHARS = int(os.environ.get("RESEARCH_NOTES_BUDGET", "60000"))
+MAX_NOTES_CHARS = TOTAL_NOTES_CHARS // N_CLUSTERS
 
 SEARCH_RULES = """
 SEARCH TOOLS — use them properly:
@@ -150,6 +157,62 @@ TOPICS = {
     "specifically: Qwen2.5, Qwen3, Qwen3-Next, DeepSeek-V3 and R1, Llama 3/4, Gemma "
     "2/3, Mistral. For each: what architectural or training choice was made "
     "explicitly to cut compute, and what number they report for it."),
+  "12": ("Kernels and low-level optimization",
+    "The layer under the frameworks: Triton, CUTLASS, FlashInfer, custom fused "
+    "kernels, torch.compile and CUDA graphs, kernel autotuning, and what fusion "
+    "actually buys. Cover why a technique that looks good in a paper often has no "
+    "kernel that makes it fast on real hardware, and which kernels exist for Ampere "
+    "specifically."),
+  "13": ("Measuring efficiency honestly",
+    "Benchmarking methodology for LLM inference and training: time-to-first-token vs "
+    "inter-token latency vs throughput, why single-stream and batched numbers are not "
+    "comparable, warmup and CUDA-graph capture effects, MLPerf Inference, and the "
+    "common ways published speedup numbers mislead (different baselines, different "
+    "batch sizes, cherry-picked sequence lengths). What a trustworthy benchmark "
+    "report must state."),
+  "14": ("Retrieval, embeddings and RAG efficiency",
+    "The cost of the retrieval half: embedding model size and inference cost, vector "
+    "index choices (HNSW, IVF-PQ, ScaNN, DiskANN) and their memory/recall tradeoffs, "
+    "late-interaction (ColBERT) vs dense bi-encoders, reranker cost, and when RAG is "
+    "cheaper than long context. Include quantized and binary embeddings."),
+  "15": ("Agent and multi-turn inference efficiency",
+    "Efficiency of agentic and multi-step LLM systems: prefix/KV reuse across turns "
+    "and tool calls, context growth over a long agent loop, cost of tool-call "
+    "round-trips, caching strategies, routing cheap steps to small models, and "
+    "parallel/speculative agent execution. What dominates cost in a real agent loop "
+    "versus what people assume does."),
+  "16": ("Batching, scheduling and multi-tenancy",
+    "Request scheduling for LLM serving: continuous batching internals, iteration-level "
+    "scheduling, fairness and SLO-aware scheduling, priority and preemption, "
+    "admission control, and the latency/throughput frontier. Cover what changes when "
+    "you are the only user versus serving many."),
+  "17": ("Low-rank and structural compression",
+    "Compression that is not quantization: low-rank factorization (SVD-based, ASVD, "
+    "SliceGPT), tensor decomposition, weight sharing and layer tying, early-exit and "
+    "layer-skipping architectures, and depth-vs-width tradeoffs. Cover why these have "
+    "seen far less adoption than quantization despite comparable paper claims."),
+  "18": ("Data efficiency and curation",
+    "Getting more from less data: deduplication (exact and near-dup, MinHash), quality "
+    "filtering and classifier-based selection, curriculum and data mixing, synthetic "
+    "data, and data-constrained scaling laws. What measurable compute or quality is "
+    "won per unit of curation effort."),
+  "19": ("Scaling laws and compute allocation",
+    "Chinchilla and its successors, over-training small models for cheap inference, "
+    "inference-aware scaling laws, distillation scaling laws, and how to decide "
+    "parameters vs tokens vs test-time compute for a fixed budget. Cover where the "
+    "original Chinchilla conclusions have been revised."),
+  "20": ("Local and consumer deployment",
+    "The practical layer for a home GPU box: llama.cpp/GGUF quantization types (Q4_K_M, "
+    "IQ-quants, importance matrices), Ollama and LM Studio, CPU offload and "
+    "layer splitting, multi-GPU on consumer boards (PCIe bandwidth, no NVLink on 3090 "
+    "without a bridge), unified memory on Apple Silicon vs discrete CUDA, and "
+    "speculative decoding in llama.cpp. Concrete and hands-on."),
+  "21": ("Energy, thermals and cost per token",
+    "Efficiency measured in watts and dollars rather than FLOPs: power limiting and "
+    "undervolting GPUs and their effect on tokens/sec, perf-per-watt across "
+    "quantization levels, idle draw, cost per million tokens local vs API, and the "
+    "reported energy cost of training and serving. Include how to measure this "
+    "properly on consumer hardware."),
   "11": ("Reasoning and test-time compute efficiency",
     "Making reasoning models cheaper: adaptive and budgeted thinking, reasoning-effort "
     "controls, chain-of-thought compression, early exit, router-to-small-model "
@@ -160,7 +223,12 @@ TOPICS = {
 
 # --- phase prompts ---------------------------------------------------------
 
-def survey_prompt(name, scope):
+def survey_prompt(name, scope, n_clusters=N_CLUSTERS):
+    blocks = "\n\n".join(
+        "## CLUSTER %d: <short name>\nKey questions: <2-3 specific questions this "
+        "cluster must answer>\nSources to read:\n- <paper title> (arXiv:<id>) -- "
+        "<one line on why it matters>\n- ... (5 to 8 sources, each one you have "
+        "ACTUALLY seen in a search result)" % i for i in range(1, n_clusters + 1))
     return f"""You are planning a deep technical literature review for an engineer who
 runs local LLMs on two RTX 3090s (Ampere, 24GB each).
 
@@ -171,21 +239,13 @@ SCOPE: {scope}
 YOUR JOB RIGHT NOW IS ONLY TO PLAN. Do not write the review.
 
 Search enough to find out what actually exists in this area, then divide it into
-exactly THREE clusters that a researcher could investigate independently.
+exactly {n_clusters} clusters that a researcher could investigate independently.
+Make them genuinely different angles -- do not produce {n_clusters} restatements
+of the same question.
 
 Output EXACTLY this structure and nothing else:
 
-## CLUSTER 1: <short name>
-Key questions: <2-3 specific questions this cluster must answer>
-Sources to read:
-- <paper title> (arXiv:<id>) -- <one line on why it matters>
-- ... (5 to 8 sources, each one you have ACTUALLY seen in a search result)
-
-## CLUSTER 2: <short name>
-(same shape)
-
-## CLUSTER 3: <short name>
-(same shape)
+{blocks}
 
 Every arXiv id must be one you saw in a real search result. If you are unsure of
 an id, give the title and write "(id unverified)" instead of guessing."""
@@ -410,12 +470,13 @@ def main():
         # three generic slices of the scope so the dives still happen.
         print("[survey] no clusters parsed; falling back to generic slices", flush=True)
         clusters = ["%s\nKey questions: cover this thoroughly.\nSources to read: "
-                    "search for them.\n(part %d of 3)" % (scope, i + 1) for i in range(3)]
+                    "search for them.\n(part %d of %d)" % (scope, i + 1, N_CLUSTERS)
+                    for i in range(N_CLUSTERS)]
     print("[survey] %d clusters" % len(clusters), flush=True)
 
     # --- DIVES ---
     notes = []
-    for i, cluster in enumerate(clusters[:3], 1):
+    for i, cluster in enumerate(clusters[:N_CLUSTERS], 1):
         if elapsed_min() > a.deadline_min:
             print("[dive] deadline reached, stopping after %d clusters" % (i - 1),
                   flush=True)
@@ -431,7 +492,7 @@ def main():
 
     # --- VERIFY ---
     corrections = ""
-    citations = extract_citations(all_notes)
+    citations = extract_citations(all_notes, limit=40)
     if citations and not a.skip_verify and elapsed_min() < a.deadline_min:
         print("[verify] checking %d citations" % len(citations), flush=True)
         corrections = run("verify", verify_prompt(name, citations))
