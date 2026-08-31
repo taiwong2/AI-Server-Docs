@@ -124,3 +124,34 @@ Two things learned building it:
 - A small model will invent plausible arXiv ids unless the prompt forbids it in
   as many words. The driver's `METHOD` block does; reuse its shape. Treat local
   research output as a draft and check citations resolve.
+
+## The agent had no context management (fixed 2026-08-31)
+
+`agent.py` appended every tool result verbatim and never trimmed. Nothing
+compacted, summarised or truncated — so a session grew until it exceeded what
+the model could attend to, and then quietly got worse rather than failing.
+
+Measured: one research dive reached **722 KB (~200k tokens) in a single turn**,
+because `web_fetch` returns up to 150 KB and the model called it repeatedly. A
+long-lived Discord channel walks the same path, only slower.
+
+`qwen-agent\compact.py` now runs before every model call:
+
+- **Elision, not summarisation.** No extra model call, deterministic, free.
+- **Messages are never dropped.** A tool message is kept with its
+  `tool_call_id` and only its *content* is shortened. Deleting a tool message
+  whose assistant `tool_call` still exists produces an invalid conversation the
+  API rejects — that is the trap to avoid.
+- **What survives untouched:** the system prompt, the first user message (the
+  task), the last few exchanges, and the single most recent tool result.
+- **Sent, not stored.** The full history stays on disk; only what goes to the
+  model is compacted. Nothing is destroyed.
+
+On the real 722 KB dive session: **722 KB -> 81 KB (~200k -> ~22k tokens), 89%
+saved**, conversation still valid, and idempotent.
+
+Tuning note: `KEEP_RECENT` is deliberately **4**, not 10. These dives make few
+enormous tool calls rather than many small ones, so a large protected tail
+shields nearly all the bulk — at 10 it only saved 22%.
+
+Only new processes pick this up; a job already running has `agent.py` loaded.

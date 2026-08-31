@@ -296,8 +296,7 @@ Output EXACTLY one line per citation, in this format:
 Nothing else. No preamble, no summary. Check every single one."""
 
 
-def synth_prompt(name, scope, notes, corrections):
-    corr = corrections.strip() or "(no verification run)"
+def synth_prompt(name, scope, notes, corrections=None):
     return f"""Write the final technical review. The research is already done --
 everything you need is below. You are only WRITING it up.
 
@@ -306,8 +305,10 @@ TOPIC: {name}
 === RESEARCH NOTES ===
 {notes}
 
-=== CITATION VERIFICATION RESULTS ===
-{corr}
+Citations have ALREADY been checked and corrected in those notes. Where one is
+marked [verified title: ...] use that title. Where one is marked
+[CITATION UNVERIFIED] drop the entry or say the citation is unverified. Do not
+discuss, reconcile or explain any of this -- it is already settled.
 
 CRITICAL OUTPUT RULES -- read these twice:
 
@@ -316,8 +317,6 @@ CRITICAL OUTPUT RULES -- read these twice:
 - **Do NOT plan out loud.** Do not write "Let me organize", do not list your
   merging decisions, do not narrate which entries you are combining. No
   meta-commentary of any kind. Write the finished document only.
-- Where the verification block marks a citation WRONG, silently use the real
-  title. Where it says NOT FOUND, drop the entry. Do not discuss the correction.
 - Merge duplicate techniques across clusters silently, keeping the best version.
 - Invent nothing. If a number is not in the notes, it does not appear.
 
@@ -341,6 +340,21 @@ Then 6 to 10 entries, each exactly:
 **Open questions:** 2-3 things the literature does not settle.
 
 Start writing now, beginning with the "## {name}" line."""
+
+
+def synth_retry_prompt(name, notes):
+    """Stripped to the bone. Used only after a normal synthesis failed to start."""
+    return f"""Below are research notes on {name}.
+
+{notes}
+
+Write ONLY a markdown document. Your first line is `## {name}`. Then 6-10 entries,
+each starting `### <name> (<arXiv id>, <year>)` with bullets for Mechanism,
+Reported gain, Cost / limitation, Adoption. End with `**Takeaway for 2x RTX 3090:**`
+and 3-5 bullets.
+
+Do not think out loud. Do not explain. Do not preface. Emit the document and stop.
+First characters of your reply: ## {name}"""
 
 
 # --- helpers ---------------------------------------------------------------
@@ -379,6 +393,55 @@ def extract_citations(text, limit=24):
 def split_clusters(survey):
     parts = re.split(r"^##\s*CLUSTER\s*\d+\s*:", survey, flags=re.M | re.I)
     return [p.strip() for p in parts[1:] if p.strip()]
+
+
+_VERDICT = re.compile(r"^\s*(\d{4}\.\d{4,5})\s*\|\s*(OK|WRONG|NOT FOUND)\s*\|?\s*(.*)$",
+                      re.M | re.I)
+
+
+def parse_verdicts(corrections):
+    """{arxiv_id: (status, real_title)} from the VERIFY phase's line format."""
+    out = {}
+    for m in _VERDICT.finditer(corrections or ""):
+        cid, status, rest = m.group(1), m.group(2).upper(), m.group(3).strip()
+        title = rest
+        # "claimed \"X\" but is actually \"Y\"" -> keep Y
+        m2 = re.search(r"is actually\s+[\"\u201c]?(.+?)[\"\u201d]?\s*$", rest, re.I)
+        if m2:
+            title = m2.group(1).strip()
+        out[cid] = (status, title.strip(' "\u201c\u201d'))
+    return out
+
+
+def apply_corrections(notes, verdicts):
+    """Fix the notes ourselves before SYNTH ever sees them.
+
+    Handing the model a list of WRONG citations and asking it to reconcile them
+    is what broke synthesis twice: it deliberates about each one at length and
+    burns its whole budget before writing a single heading. This is a mechanical
+    substitution, so do it mechanically and give SYNTH clean notes with nothing
+    to argue with.
+    """
+    if not verdicts:
+        return notes, 0
+    fixed = 0
+
+    def repl(m):
+        nonlocal fixed
+        cid = m.group(1)
+        v = verdicts.get(cid)
+        if not v:
+            return m.group(0)
+        status, title = v
+        if status == "OK":
+            return m.group(0)
+        fixed += 1
+        if status == "NOT FOUND":
+            return "arXiv:%s [CITATION UNVERIFIED - no such paper found]" % cid
+        return "arXiv:%s [verified title: %s]" % (cid, title[:120])
+
+    notes = re.sub(r"arXiv[:\s]*(\d{4}\.\d{4,5})", repl, notes)
+    return notes, fixed
 
 
 def clean_report(report, name):
@@ -501,7 +564,12 @@ def main():
               % (len(citations), elapsed_min()), flush=True)
 
     # --- SYNTH ---
-    report = run("synth", synth_prompt(name, scope, all_notes, corrections))
+    verdicts = parse_verdicts(corrections)
+    all_notes, n_fixed = apply_corrections(all_notes, verdicts)
+    print("[verify] parsed %d verdicts, corrected %d citations in the notes"
+          % (len(verdicts), n_fixed), flush=True)
+
+    report = run("synth", synth_prompt(name, scope, all_notes))
     report, had_preamble = clean_report(report, name)
     if had_preamble:
         print("[synth] stripped a preamble the model emitted before the report",
@@ -509,6 +577,19 @@ def main():
 
     ok, why = looks_like_a_report(report, name)
     print("[synth] structure check: %s (%s)" % ("PASS" if ok else "FAIL", why), flush=True)
+
+    if not ok and elapsed_min() < a.deadline_min:
+        # The dives are the expensive part and they are already done. One more
+        # attempt with a stripped prompt is far cheaper than failing the topic
+        # and re-running an hour of research.
+        print("[synth] retrying with a minimal prompt", flush=True)
+        report2 = run("synth2", synth_retry_prompt(name, all_notes))
+        report2, _ = clean_report(report2, name)
+        ok2, why2 = looks_like_a_report(report2, name)
+        print("[synth2] structure check: %s (%s)" % ("PASS" if ok2 else "FAIL", why2), flush=True)
+        if ok2:
+            report, ok, why = report2, ok2, why2
+
     if not ok:
         # Save the bad output for inspection, then fail so the queue retries the
         # whole topic rather than archiving a plan as if it were a review.
