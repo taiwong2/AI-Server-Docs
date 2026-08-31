@@ -17,34 +17,55 @@ python $Q submit --kind qwenresearch --arg TopicId=01
 python $Q submit --kind qwenresearch --arg TopicId=02 --arg ReasoningEffort=xhigh
 ```
 
-Each job = **one topic**, which keeps a run far inside the queue's
+Each job = **one topic**, which keeps a run inside the queue's
 `job_timeout_minutes` (180) and gives every topic its own log, its own retry and
 its own result file. Do not batch ten topics into one job; one bad topic then
 takes the whole run down with it.
 
 - Driver: `C:\AI-Server\scripts\research_qwen.py` (topics are a dict at the top)
 - Handler: `C:\AI-Server\scripts\jobkinds\qwenresearch.ps1`
-- Output: `C:\AI-Server\out\llm-efficiency\<id>-<slug>.md`, and posted to Discord
+- Output: `C:\AI-Server\out\llm-efficiency\<id>-<slug>.md`, plus a
+  `.notes.md` with the raw notes and the citation check, plus a Discord post
 - Log: `C:\AI-Server\logs\jobs\<job-id>-qwenresearch.log`
 
-## Why it is built this way
+## A topic is a pipeline, not a prompt
 
-**One session per topic.** A shared session across topics blows the context
-window and each topic gets slower and vaguer than the last. A fresh session per
-topic keeps every one sharp.
+One turn produces a survey, not research. Depth needs the model to plan, read,
+check itself, then write:
 
-**No GPU lease.** Inference goes to the model LM Studio already holds resident,
-so this job allocates no VRAM of its own — there is nothing to lease. What the
-long run actually needs is for the box not to sleep, and a runnable job is
-itself a sleep blocker. Take a lease when *you* allocate VRAM, not when you call
-someone else's server.
+```
+SURVEY   map the field -> 3 clusters, each naming specific papers to read
+  |
+DIVE x3  one fresh session per cluster: fetch the actual sources, take notes
+  |
+VERIFY   re-check every arXiv id the notes cite really resolves, and that the
+         title matches what was claimed -> a correction list
+  |
+SYNTH    write the final report from the notes plus the corrections
+```
 
-**The handler checks LM Studio before starting.** If `:1234` is not answering,
-or the expected model is not loaded, it throws immediately instead of failing
-slowly and obscurely twenty minutes in. Verify the effect, not the return path.
+Budget roughly 45-90 min per topic. That is the price of depth and the reason
+this belongs on the queue.
 
-**A short answer exits non-zero.** Under 400 characters is treated as failure so
-the queue retries, rather than archiving a stub as `done`.
+**Every phase gets a FRESH session, carrying forward only the distilled notes.**
+This is the load-bearing decision. The agent keeps full history per session and
+a single `web_fetch` returns up to 20k characters, so a six-turn conversation
+buries the model in raw HTML long before the last turn. Pass notes, never
+transcripts.
+
+`QWEN_TURN_TIME_BUDGET_SEC` caps ONE phase, not the job, and it is read when
+`config` is imported — set it in the environment before importing `agent`, or it
+silently keeps the default.
+
+**The VERIFY phase is not optional, and it earns its keep.** On its first real
+run it caught `2412.19437` cited as the auxiliary-loss-free load-balancing paper
+when it is actually the DeepSeek-V3 Technical Report -- a wrong citation that
+would have read as authoritative. A 27B model produces fluent, plausible, wrong
+arXiv ids, and a survey full of them looks exactly like a good one.
+
+Exclude your own structural headings from the citation extractor. Feeding it
+`### Cluster 1 notes` as a "claimed title" makes VERIFY report a false WRONG,
+which buries the real ones.
 
 ## Writing the prompt is most of the work
 
@@ -63,6 +84,31 @@ the reusable part — copy its shape for new research:
   cost / adoption / citation). Open-ended prompts return marketing prose.
 - Set `QWEN_REASONING_EFFORT=medium` for research. The loop default is `low`,
   which is tuned for chat latency, not for thinking.
+
+## The synthesis phase will narrate its plan unless you stop it
+
+Observed 2026-08-31 on topic 03: the SYNTH phase spent its entire token budget
+writing *"Let me carefully organize this review... Entry list (targeting 4-8)..."*
+and never produced a document. 234 lines, zero `##` headings. The job exited 0
+and archived a plan as if it were a review.
+
+Three things fix it, and you want all three:
+
+1. **Do not ask one phase to decide and write.** The old prompt asked the model
+   to apply citation corrections AND merge duplicates AND write the report,
+   which is an invitation to think out loud. Tell it the research is done and it
+   is only writing; say "apply corrections silently".
+2. **Pin the first line.** "Your very first line must be exactly `## <topic>`.
+   Any other first line is a failed response." Then strip anything before the
+   first `##` anyway (`clean_report`) -- it sometimes narrates regardless.
+3. **Validate structure and exit non-zero.** `looks_like_a_report` requires a
+   `##` heading, 3+ `###` entries and 1500+ characters. Without that check a
+   plan-shaped failure looks exactly like success to the queue, which is
+   AGENTS.md rule 5 in its purest form: the return path said 0, the effect was
+   a wasted hour.
+
+The bad output is saved as `<id>-<slug>.FAILED.md` so the retry can be compared
+against it.
 
 ## Verify before you trust
 
