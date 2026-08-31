@@ -78,3 +78,49 @@ in `C:\AI-Server\ai-admin\README.md`. Summary:
 
 The driving example — "raise Antoine 20 GB → 40 GB" — is a real, enforced
 `quota.py resize` (verified end-to-end).
+
+## Managing channels programmatically (added 2026-08-31)
+
+`C:\AI-Server\scripts\discord_admin.py` does channel administration without a
+browser. Stdlib only, so it runs under any python on the box, and it reads the
+bot token from the ACL-locked `token.env` itself — the token never has to be
+passed in or printed.
+
+```bash
+PY="C:\Users\poopl\AppData\Local\Programs\Python\Python312\python.exe"
+D="C:\AI-Server\scripts\discord_admin.py"
+
+$PY $D guild-info                                  # bot identity + every channel id
+$PY $D create-channel --name qwen-my-topic --topic "..."
+$PY $D post --channel <channel-id> --file findings.md
+```
+
+`post` splits on blank lines to respect the 2000-character message cap without
+cutting mid-line, so Markdown survives, and it backs off on HTTP 429.
+
+Because **naming a channel chooses its backend**, `create-channel --name
+qwen-foo` creates a live Qwen session in one call.
+
+**The bridge ignores bots and webhooks by design**, so a message the bot posts
+never triggers a backend. Posting *records* output; it does not ask a question.
+Do not build a loop that expects the bot to answer itself.
+
+## Research jobs on the local model (added 2026-08-31)
+
+`jobkinds\qwenresearch.ps1` plus `scripts\research_qwen.py` run the local Qwen
+through a deep-research topic and post the result to Discord — one topic per
+job, so a run stays inside `job_timeout_minutes` and each topic gets its own
+log, retry and result file.
+
+```bash
+python C:\AI-Server\scripts\jobqueue.py submit --kind qwenresearch --arg TopicId=01
+```
+
+Two things learned building it:
+
+- Set `PYTHONUNBUFFERED=1` in any job handler that shells out to python, or
+  nothing reaches the job log until the process exits and a healthy run looks
+  exactly like a hung one.
+- A small model will invent plausible arXiv ids unless the prompt forbids it in
+  as many words. The driver's `METHOD` block does; reuse its shape. Treat local
+  research output as a draft and check citations resolve.

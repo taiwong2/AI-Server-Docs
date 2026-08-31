@@ -9,6 +9,8 @@ learning the commands and rediscovering the rules the expensive way.
 | `ai-server-jobs` | submitting, scheduling and watching work on the queue |
 | `ai-server-gpu` | reserving a GPU so concurrent jobs do not collide |
 | `ai-server-wake` | waking the box, and diagnosing why it will or will not sleep |
+| `ai-server-discord` | Discord channels as sessions: creating a channel, posting findings, bridge health |
+| `ai-server-research` | Deep research by the local Qwen model, one topic per queued job |
 
 ## Installing
 
@@ -18,6 +20,8 @@ Claude Code — copy into a project (or `~/.claude/skills/` for every project):
 cp -r skills/ai-server-jobs  /path/to/project/.claude/skills/
 cp -r skills/ai-server-gpu   /path/to/project/.claude/skills/
 cp -r skills/ai-server-wake  /path/to/project/.claude/skills/
+cp -r skills/ai-server-discord  /path/to/project/.claude/skills/
+cp -r skills/ai-server-research /path/to/project/.claude/skills/
 ```
 
 Other harnesses: each `SKILL.md` is plain Markdown with YAML frontmatter
