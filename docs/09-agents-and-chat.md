@@ -32,8 +32,12 @@ conversation; the **backend** is chosen by the channel-name prefix:
   is served; bots, webhooks and DMs are ignored; with no allowlist it ignores
   everything. Both backends run **as poopl with full privileges** — the
   allowlist is mandatory.
-- Auto-starts from `start-services.ps1` (step 6c), self-skipping until a token is
-  set. To enable: create a Discord bot, turn on the **Message Content Intent**,
+- **The bot runs on the mini (`wake-relay`), not here.** The
+  `state\discord-bridge\bot-on-mini` marker makes `start-services.ps1` skip it —
+  two gateway connections on one token kick each other off. The mini receives
+  the message, wakes this box if it is asleep, then dispatches over ssh to
+  `dispatch_once.py`. Bot code: `/Users/workbot/wake-watch/mini_bot.py`, reachable
+  as `ssh root@100.127.179.9`. To enable: create a Discord bot, turn on the **Message Content Intent**,
   put the token + your user/guild ids in `token.env`, restart.
 - `#main` relay: messages become JSON tickets in `state\discord-bridge\main-inbox\`;
   the interactive session replies via `reply_main.py` -> `main-outbox\`.
@@ -155,3 +159,29 @@ enormous tool calls rather than many small ones, so a large protected tail
 shields nearly all the bulk — at 10 it only saved 22%.
 
 Only new processes pick this up; a job already running has `agent.py` loaded.
+
+## A live bot process is not a live bot (2026-08-31)
+
+`mini_bot.py` had been running for two days and Discord was silent. The process
+was healthy; the **gateway connection was not** — the last `mini bot online`
+line was 34 hours old and nothing had noticed.
+
+What hid it: a supervisor respawns the bot every ~10 seconds, each attempt
+correctly refuses on the lock file, and writes `another mini_bot instance
+already holds the lock; exiting`. That fills the log so completely that the
+absence of real activity is invisible. Always filter it:
+
+```bash
+ssh root@100.127.179.9 "cd /Users/workbot/wake-watch && \
+  grep -v 'already holds the lock' mini-bot.log | tail -20"
+```
+
+Fix is a plain `kill <pid>`; the supervisor retakes the lock within ~10s and
+logs a fresh `mini bot online`.
+
+## qwen channels compete with local research
+
+One LM Studio instance serves both. With a research dive running, an 8-token
+request measured **30 seconds**. Chat works but crawls; a turn with tool calls
+can take many minutes. `claude-*` channels are unaffected. Pause the queue if
+someone needs the local model interactively.

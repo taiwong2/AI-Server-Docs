@@ -60,21 +60,60 @@ never trigger a backend. So:
 
 Do not build a loop that expects the bot to answer its own message.
 
-## When the bridge is not responding
+## The bot does NOT run on the AI server
 
-The bot is a separate process from the queue runner; the queue can be perfectly
-healthy while the bot is down.
+It runs on **the mini** (`wake-relay`, a Mac mini) so it never misses a message
+and can wake the AI server on demand. `C:\AI-Server\state\discord-bridge\bot-on-mini`
+is a marker that stops `start-services.ps1` launching a second copy — **two
+gateway connections on one token kick each other off**, so do not "fix" a silent
+bot by starting one on the server.
 
-```bash
-ssh ai-server "powershell -NoProfile -Command \"Get-CimInstance Win32_Process -Filter \\\"Name like '%python%'\\\" | Where-Object { \$_.CommandLine -match 'discord|bot.py' } | Select-Object ProcessId,CommandLine | Format-List\""
+```
+Discord ──▶ mini (mini_bot.py, user workbot, /Users/workbot/wake-watch)
+              │  wakes the server if asleep, then
+              └─ ssh poopl@ai-server  python C:\AI-Server\discord-bridge\dispatch_once.py
+                                       └─ qwen agent | headless Claude Code
 ```
 
-No output means the bot is not running. It auto-starts from
-`start-services.ps1` (step 6c) and self-skips until a token is set. Log:
-`C:\AI-Server\logs\discord-bridge.log`.
+Reach the mini with Tailscale SSH: `ssh root@100.127.179.9` (node `wake-relay`).
 
-Check `Message Content Intent` is on in the Discord developer portal — without
-it the bot receives empty message bodies and looks broken while "working".
+## When the bridge is not responding
+
+Check the mini first, not the server:
+
+```bash
+ssh root@100.127.179.9 "ps aux | grep mini_bot | grep -v grep"
+ssh root@100.127.179.9 "cd /Users/workbot/wake-watch && grep -v 'already holds the lock' mini-bot.log | tail"
+```
+
+**A live process does not mean a live bot.** Observed 2026-08-31: `mini_bot.py`
+had been running for two days, but the last `mini bot online` line was 34 hours
+old — the gateway had gone stale and nothing noticed, because a supervisor was
+respawning every 10s and correctly backing off on the lock file, which fills the
+log with `already holds the lock` and hides the silence. Filter that line out or
+you will read a healthy-looking log for a dead bot.
+
+Restart is just killing it; the supervisor retakes the lock within ~10s:
+
+```bash
+ssh root@100.127.179.9 "kill <pid>"      # then re-check for 'mini bot online'
+```
+
+Other things worth checking, in order: `ssh poopl@ai-server` from the mini as
+`workbot` (the dispatch path), and whether the Message Content Intent is still
+on in the developer portal — without it the bot receives empty message bodies
+and looks broken while "working".
+
+## qwen channels and local research share one LM Studio
+
+There is one model server. While a research job is running, a `qwen-*` channel
+queues behind it — an 8-token request measured **30 seconds** mid-dive. Chat
+still works, it is just slow, and a real turn with tool calls can take many
+minutes. `claude-*` channels are unaffected: headless Claude Code never touches
+LM Studio.
+
+If someone needs the local model interactively, pause the research queue rather
+than assuming the bridge is broken.
 
 ## Security — the part that is not optional
 
@@ -83,8 +122,9 @@ it the bot receives empty message bodies and looks broken while "working".
 - Both backends run **as poopl with full privileges**. The allowlist is the only
   thing between a Discord message and a shell on this box. Never widen it
   casually, and never add a channel to a guild you do not control.
-- Config lives in `C:\AI-Server\state\discord-bridge\token.env` (ACL-locked).
-  Never commit it, never echo it, never paste a token into a prompt or a log.
+- Config lives in `C:\AI-Server\state\discord-bridge\token.env` (ACL-locked) and
+  in `/Users/workbot/wake-watch/mini-bot.env` on the mini. Never commit either,
+  never echo one, never paste a token into a prompt or a log.
 
 ## Do not
 
