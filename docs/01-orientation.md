@@ -29,7 +29,7 @@ Windows utility — Secure Boot plus HVCI block the drivers those tools need.
 | Python (system) | 3.12, plus Miniconda3 |
 | GPU env | conda env **`ai`** — `C:\Users\poopl\miniconda3\envs\ai\python.exe` |
 | CUDA | 12.4 |
-| Inference | LM Studio (port 1234) |
+| Inference | native llama.cpp host (port 1236) |
 | Streaming | Sunshine (Moonlight clients) |
 | Remote | OpenSSH (22), Tailscale |
 

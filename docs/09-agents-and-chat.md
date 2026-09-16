@@ -44,7 +44,7 @@ conversation; the **backend** is chosen by the channel-name prefix:
 
 ## Qwen agent — the local model as an agent
 
-`C:\AI-Server\qwen-agent\` drives `qwen3.8-27b-uncensored` (via LM Studio) in an
+`C:\AI-Server\qwen-agent\` drives `qwen3.8-27b-uncensored` (via native llama.cpp) in an
 agentic tool loop: `run_shell` (PowerShell), `read_file`, `write_file`,
 `list_dir`, `web_fetch`, `web_search`.
 
@@ -56,6 +56,82 @@ agentic tool loop: `run_shell` (PowerShell), `read_file`, `write_file`,
   effort defaults to `low` for loop latency (`qwen-agent\config.py`,
   `QWEN_REASONING_EFFORT` = low|medium|xhigh).
 - Try it: `python C:\AI-Server\qwen-agent\cli.py --repl --session test`
+
+## DeepSeek Harness — local coding path (added 2026-09-14)
+
+The workstation now has DeepSeek Harness (DSH) installed for agentic coding.
+Its custom provider `tai-ai-server` points at the local DSH proxy
+(`http://127.0.0.1:1235/v1`), which forwards to the AI server's LAN-only native
+llama.cpp host using the OpenAI-compatible protocol. The default configured
+model is `qwen3.8-27b-uncensored`; the provider also lists the other models
+exposed by the native host.
+
+- Workspace: `C:\Users\Tai\AI-Server-Docs`
+- Global DSH instructions: `C:\Users\Tai\.dsh\AGENTS.md`
+- Workspace skills: `.agents\skills\`
+- DSH settings: `C:\Users\Tai\.dsh\settings.yaml`
+- Runtime context/output ceilings: `262144` tokens each. The production Q6
+  profile keeps KV cache on GPU with q8 K/V quantization; the usable output is
+  reduced by the prompt and injected context.
+- Automatic compaction: enabled at 80% pressure, retaining the newest 16% of
+  history; oversized tool results are pruned first. Use `/compact` for manual
+  compaction.
+- Credential reference: `AI_SERVER_API_KEY` in the DSH credential store
+  (`C:\Users\Tai\.dsh\.credentials.yaml`); do not copy that value into docs
+  or source control.
+- Web UI: run `dsh` (or `dsh -l`) from a normal terminal. The managed wrapper
+  launches DSH and SSH headlessly, leases the GPUs while the Harness is active,
+  and opens no extra terminal windows. Opening the bare root URL returns `401`
+  by design; use the tokenized URL printed by DSH if opening it manually.
+
+The model picker supports switching models per session. To switch, click the
+current model button in the composer, choose `Model`, then choose a model under
+`Tai AI Server (llama.cpp)`. The available local choices currently include
+Qwen 3.8, Qwen 3.6, Gemma 4 12B/31B, Muse Glimmer, and AuthorMist. A switch
+takes effect on the next request; existing sessions may retain their selected
+model until changed. The native host switches the selected model before a
+request. For the local Qwen path, the managed host script is:
+
+```powershell
+C:\AI-Server\scripts\llama-host.ps1 -Action Start -Model qwen3.8-27b-uncensored -Hold
+```
+
+### GPU handoff for agentic coding
+
+Agentic coding and the long-running AlphaClash trainers share the two GPUs;
+the managed handoff pauses both trainers, leases both GPUs, and runs native
+llama.cpp with the Q6 256K profile.
+Before loading a large local model, pause the active training supervisors and
+release their leases through `C:\AI-Server\scripts\gpulease.py`; after coding,
+unload the model and restart each supervisor with its original `-Run` and
+`-Vram` arguments. Do not choose a GPU from `nvidia-smi` or kill unrelated
+processes. The lease list is the source of truth.
+
+The 2026-09-14 handoff was verified end-to-end: both `alphaclash-specA`
+(20,000 MB) and `alphaclash-convY` (22,000 MB) were stopped, Qwen loaded and
+answered through DSH, Qwen was unloaded, and both supervisors were relaunched
+from their original scripts. The broker then showed two live leases again.
+
+For automatic lifecycle management, launch DSH through
+`C:\Users\Tai\.dsh\dsh-agentic.ps1` instead of launching `node` directly:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File C:\Users\Tai\.dsh\dsh-agentic.ps1 web --port 8787 --no-open
+```
+
+The workstation shim now puts this behind the short command `dsh` (and the
+equivalent `dsh -l`) from a new terminal. Only run one managed Harness instance
+at a time because the GPU handoff state is intentionally shared. The controller,
+SSH handoff, and Node web server run hidden; only Chrome is visible.
+
+The wrapper holds a `dsh-agentic-coding` lease while the Harness is active. After
+five minutes without a session-file activity change, it unloads Qwen, releases
+the lease, and triggers the existing `AlphaClash-ResumeTraining` scheduled task.
+The Harness stays open; the next session activity reacquires the lease, pauses
+the trainers, and reloads Qwen. Normal Harness exit performs the same release.
+The lease's six-hour expiry remains the crash fallback; if a wrapper is
+forcibly killed, run the handoff `Release` action manually after confirming the
+Harness is closed.
 
 ## AI administrator — built (2026-08-27)
 
@@ -179,9 +255,17 @@ ssh root@100.127.179.9 "cd /Users/workbot/wake-watch && \
 Fix is a plain `kill <pid>`; the supervisor retakes the lock within ~10s and
 logs a fresh `mini bot online`.
 
-## qwen channels compete with local research
+## Subagents and multi-agent workflows
 
-One LM Studio instance serves both. With a research dive running, an 8-token
-request measured **30 seconds**. Chat works but crawls; a turn with tool calls
-can take many minutes. `claude-*` channels are unaffected. Pause the queue if
-someone needs the local model interactively.
+The installed DSH `standard` preset includes `subagent`, `subagent_fork`,
+`list_agents`, messaging/control tools, and the `workflow` engine. A parent can
+delegate one-shot work or start continuable child agents; `parallel()` and
+`pipeline()` can fan work out across children. Child model-route selection is
+enabled by the preset, so children can use the configured local models.
+
+The native Qwen host uses `parallel=1` because it maximizes one Q6/256K
+generation. Multiple children are supported, but their model turns queue behind
+the single inference slot; independent tool work can still overlap. Increasing
+native `--parallel` is a throughput experiment, not a free speed improvement,
+because it consumes additional KV memory. Keep the shared dual-GPU lease on the
+host rather than launching separate llama-server processes.

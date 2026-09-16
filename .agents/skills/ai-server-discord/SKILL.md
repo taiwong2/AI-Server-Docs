@@ -12,7 +12,7 @@ prefix** picks which backend answers it.
 
 | Channel name | Backend |
 |---|---|
-| `qwen-*` / `qwen` | Local Qwen agent (`qwen3.8-27b-uncensored` via native llama.cpp) |
+| `qwen-*` / `qwen` | Local Qwen agent (`qwen3.8-27b-uncensored` via LM Studio) |
 | `claude-*` | Headless Claude Code (`claude -p --resume`) |
 | `admin-*` | The AI administrator (role-aware, enforces quotas) |
 | `main` | Relay to the interactive terminal Claude session |
@@ -104,13 +104,13 @@ Other things worth checking, in order: `ssh poopl@ai-server` from the mini as
 on in the developer portal — without it the bot receives empty message bodies
 and looks broken while "working".
 
-## qwen channels and local research share one native host
+## qwen channels and local research share one LM Studio
 
-There is one native llama.cpp model server on port `1236`. While a research job
-is running, a `qwen-*` channel queues behind it. The host is configured with
-one inference slot to maximize single-request Q6 throughput; independent tool
-work can overlap, but model generations are serialized. `claude-*` channels are
-unaffected: headless Claude Code never touches the local host.
+There is one model server. While a research job is running, a `qwen-*` channel
+queues behind it — an 8-token request measured **30 seconds** mid-dive. Chat
+still works, it is just slow, and a real turn with tool calls can take many
+minutes. `claude-*` channels are unaffected: headless Claude Code never touches
+LM Studio.
 
 If someone needs the local model interactively, pause the research queue rather
 than assuming the bridge is broken.

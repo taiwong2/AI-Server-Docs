@@ -129,9 +129,10 @@ do not work around it silently.
 
 ## Hard "do not"
 
-- Do NOT install Ollama (LM Studio and llama.cpp are the stack here).
+- Do NOT install Ollama. Native llama.cpp is the active inference stack; LM
+  Studio remains only as a source of bundled model files/backends and fallback.
 - Do NOT use WSL unless explicitly asked.
 - Do NOT raise GPU power limits above 350 W (GPU 0) / 390 W (GPU 1).
-- Do NOT expose the LM Studio API port externally — it has no auth.
+- Do NOT expose the llama.cpp API port `1236` externally — it has no auth.
 - Do NOT disable the busy-port guard permanently; a listening game server means
   real people are connected.

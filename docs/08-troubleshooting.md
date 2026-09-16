@@ -1,6 +1,35 @@
 # Troubleshooting
 
+## DeepSeek Harness browser and credential failures (2026-09-14)
+
+If DSH web shows `401 Unauthorized`, do not open `http://127.0.0.1:8787/`
+directly. DSH prints an authenticated URL containing a one-time `token`; open
+that exact URL once so it can mint the browser cookie, then the clean root URL
+works. A stale token or a server restart requires the newly printed URL.
+
+If a request reports `MISSING_CREDENTIAL` for `tai-ai-server`, confirm the
+Models page says **API key configured** and that the DSH credential store has a
+non-empty `AI_SERVER_API_KEY` reference. A user environment variable exported
+after DSH started is not visible to that running process; restart DSH or store
+the reference through the credential service. LM Studio does not require real
+authentication, but the OpenAI-compatible adapter still requires a placeholder
+credential or Authorization header.
+
+On Windows Node 22.15, the installed DSH launcher did not invoke its CLI entry
+point correctly. The working wrapper is `C:\Users\Tai\.dsh\dsh-launcher.mjs`;
+upgrade Node to the package's supported 22.19+ line before removing the wrapper.
+
 Symptoms first, with the answers that were expensive to find.
+
+## Native llama.cpp says the model is unavailable
+
+DSH must use `http://127.0.0.1:1235/v1`; the proxy asks the long-lived native
+host to switch models and waits for `/v1/models` to become healthy. Check
+`dsh-model-proxy.log`, `C:\AI-Server\logs\llama-host\server.err.log`, and
+`C:\AI-Server\state\llama-host\state.json`. The tested Q6/256K Qwen profile
+uses both GPUs, layer split `1,1`, Flash Attention, q8 K/V cache, MTP2, batch
+2048, and ubatch 512; it measured 48.32 tok/s direct and 47.19 tok/s through
+the proxy. The handoff reaps dead/reused-PID leases and cleans up failed loads.
 
 ## "The server is down"
 
@@ -78,7 +107,8 @@ Two known causes:
 ## Two GPU jobs landed on the same card
 
 Someone skipped the lease. See [GPU leasing](03-gpu-leasing.md). If a stale
-lease is blocking instead, `gpulease.py list` then `reap`.
+lease is blocking instead, `gpulease.py list` then `reap`; the broker also
+automatically reaps expired, dead-owner, and reused-PID leases.
 
 ## `nvidia-smi` shows a card pinned at 120 W
 
@@ -106,3 +136,30 @@ Look at it — automated quality gates have been wrong here three separate times
 A seam, a smear or a repeated texture band means the image needed the
 scene-aware `genfill` path, not deterministic extension. See
 [Imaging](04-imaging.md).
+
+## DSH model loading and generation
+
+The production path is native llama.cpp, not an LM Studio API. DSH talks to the
+local proxy at `http://127.0.0.1:1235/v1`; the proxy asks the long-lived host at
+`http://100.71.113.77:1236` to switch models when needed. The host owns both GPU
+leases and starts one Q6 model with 262,144 context, full layer offload,
+Flash Attention, q8 K/V cache, and draft-MTP where the model supports it.
+
+Check the state and service from PowerShell:
+
+```powershell
+ssh poopl@100.71.113.77 "type C:\AI-Server\state\llama-host\state.json"
+ssh poopl@100.71.113.77 "curl.exe -s http://127.0.0.1:1236/v1/models"
+```
+
+The tested warm Q6 generation is about 47–48 tokens/second at 256K context.
+If the host is asleep, run `dsh` again: the wrapper wakes it through the
+Moonlight/wake relay before attempting SSH or model loading.
+
+### Legacy LM Studio fallback
+
+LM Studio is no longer the production model server. Do not edit its
+`disabledGpus` or model-load settings to fix DSH. Use the native host state and
+service checks above; the DSH wrapper owns wake, leases, model switching, and
+the local proxy. The bundled LM Studio model files remain available as a
+fallback source for llama.cpp.

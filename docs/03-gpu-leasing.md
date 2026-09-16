@@ -35,9 +35,9 @@ python C:\AI-Server\scripts\gpulease.py reap
 ```
 
 **Shell callers must pass `--pid`.** A CLI `acquire` exits the moment it prints,
-so without `--pid` the python process that created the lease is already dead and
-the next reap collects it instantly. With `--pid $$` (bash) or `--pid $PID`
-(PowerShell) the lease belongs to your shell.
+so without `--pid` the lease is intentionally expiry-only. With `--pid $$`
+(bash) or `--pid $PID` (PowerShell), the broker records the owning process and
+its creation time, so a dead owner or reused PID is reaped safely.
 
 The imaging pipeline wraps this in `common.gpu_bootstrap()`, which also preloads
 torch's CUDA DLLs before onnxruntime imports — order matters there.
@@ -45,9 +45,12 @@ torch's CUDA DLLs before onnxruntime imports — order matters there.
 ## How it behaves
 
 - One JSON file per lease in `C:\AI-Server\state\gpu-leases\`.
-- Every `acquire` first reaps leases whose PID is gone or whose `expires_at` has
-  passed, so a crashed job cannot wedge the queue.
-- A lease nobody releases dies after 6 hours.
+- Every `acquire` first reaps leases whose owner is gone, whose PID was reused,
+  or whose `expires_at` has passed, so a crashed job cannot wedge the queue.
+- Lease file writes and releases are atomic and serialized by an OS lock.
+- The DSH handoff cleans up its lease if model loading fails or the wrapper
+  loses readiness. Its crash fallback is 12 hours; normal idle/exit cleanup is
+  much sooner.
 - Ties break to the **lower** GPU index, deliberately, so nothing quietly
   recreates the old "always card 1" habit.
 
@@ -76,3 +79,5 @@ left both cards over-committed with 66 MB free.
 - Do not avoid GPU 0 — both cards are healthy.
 - Do not raise power limits past 350 W (GPU 0) / 390 W (GPU 1).
 - Do not hold a lease across a long non-GPU phase. Release it, re-acquire.
+- A pinned `--gpu` request still checks real free VRAM. Use `--force` only for a
+  deliberate override, and understand that it bypasses the memory safety guard.
