@@ -110,6 +110,78 @@ If the client uses a different account or install location, update every
 hard-coded client path in `dsh-agentic.ps1` and the wrapper. Do not copy the
 original user's credential files or session storage.
 
+### Required portability edits
+
+The checked-in files are configured for the original client and are not a
+drop-in installer. Before running them on another client, make these edits:
+
+| File | Replace | With |
+|---|---|---|
+| `dsh-agentic.ps1` | `C:\Users\Tai\.dsh` | `C:\Users\<user>\.dsh` |
+| `dsh-agentic.ps1` | `poopl@100.71.113.77` | `<ssh-user>@<ai-server>` |
+| `dsh-agentic.ps1` | `100.71.113.77` in the wake/health values | the AI server's Tailscale address |
+| `dsh-model-proxy.mjs` | `http://100.71.113.77:1236` | `http://<ai-server>:1236` |
+| `dsh-child-proxy.mjs` | `http://100.71.113.77:1236` | `http://<ai-server>:1236` |
+
+The launcher file also contains the original user's global npm path. Replace
+its contents with this portable version so it works for any Windows account:
+
+```javascript
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+const entry = path.join(process.env.APPDATA, 'npm', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js');
+const { runCli } = await import(pathToFileURL(entry).href);
+await runCli();
+```
+
+Use `Select-String` to find values that still belong to the original machine:
+
+```powershell
+Select-String -Path "$env:USERPROFILE\.dsh\*.ps1","$env:USERPROFILE\.dsh\*.mjs" -Pattern 'Tai|100\.71\.113\.77|poopl@'
+```
+
+Every result should be intentional before continuing.
+
+### Copy the client configuration safely
+
+Copy code and configuration files only. Do not copy these files or directories
+from the original client:
+
+```text
+.credentials.yaml
+sessions\
+storages\
+attachments\
+*.log
+```
+
+After installing the DSH package, create a fresh `settings.yaml` with the
+local proxy endpoints. The important values are:
+
+```yaml
+agent-default-model:
+  provider: tai-ai-server
+  model: qwen3.8-27b-uncensored
+
+llm-pi-ai:
+  providers:
+    tai-ai-server:
+      api: openai-completions
+      baseURL: http://127.0.0.1:1235/v1
+      models:
+        - id: qwen3.8-27b-uncensored
+    tai-ai-server-child:
+      api: openai-completions
+      baseURL: http://127.0.0.1:1238/v1
+      models:
+        - id: qwen3.8-27b-child
+```
+
+Do not set the DSH provider URL to the server's `1236` address. Port `1236`
+is the unauthenticated native service; the client must use the local `1235`
+and `1238` proxies.
+
 ## 2. Configure client-to-server access
 
 Install and sign in to Tailscale on both machines. Give the AI server a stable
@@ -122,6 +194,18 @@ $wakeRelay = '<wake-relay-tailscale-name-or-ip>'
 $wakeUrl = 'https://<wake-relay-host>/wake'
 $remote = 'C:\AI-Server\scripts\llama-host.ps1'
 ```
+
+For the current installation, those values are:
+
+```powershell
+$server = 'poopl@100.71.113.77'
+$wakeRelay = '100.127.179.9'
+$wakeUrl = 'https://wake-relay.tail215694.ts.net/wake'
+$remote = 'C:\AI-Server\scripts\llama-host.ps1'
+```
+
+The new client still uses these same server values if it is connecting to this
+AI server; only the client-local `C:\Users\<user>\.dsh` paths change.
 
 Configure SSH key authentication from the client to the AI server. Verify it
 before starting DSH:
@@ -188,6 +272,54 @@ The wrapper calls the tailnet-only wake relay before SSH:
 ```text
 https://wake-relay.tail215694.ts.net/wake
 ```
+
+### First connection walkthrough
+
+Run these steps on the **client**, not on the AI server:
+
+1. Open PowerShell and confirm the client can reach the server:
+
+   ```powershell
+   tailscale ping <ai-server>
+   ssh <ssh-user>@<ai-server> powershell.exe -NoProfile -Command "Write-Output SSH_OK"
+   ```
+
+2. Confirm the client-side DSH configuration points at local ports:
+
+   ```powershell
+   Select-String -Path "$env:USERPROFILE\.dsh\settings.yaml" -Pattern 'baseURL'
+   ```
+
+   It must show `http://127.0.0.1:1235/v1` and, for children,
+   `http://127.0.0.1:1238/v1`.
+
+3. Start the managed connection:
+
+   ```powershell
+   dsh -l
+   ```
+
+   The wrapper wakes the server, opens the SSH-held `llama-host.ps1` session,
+   waits for the `READY` message, starts ports 1235 and 1238, and then starts
+   the DSH web server on port 3080.
+
+4. Open the complete URL printed by DSH. It includes an authentication token;
+   opening only `http://127.0.0.1:3080/` returns `401`.
+
+5. In a second PowerShell window, verify the connection:
+
+   ```powershell
+   Get-NetTCPConnection -State Listen -LocalPort 3080,1235,1238
+   Invoke-RestMethod http://127.0.0.1:1235/v1/models
+   ssh <ssh-user>@<ai-server> powershell.exe -NoProfile -Command "Invoke-RestMethod http://127.0.0.1:1236/v1/models"
+   ```
+
+   The first command should show three local listeners, and both model queries
+   should return a JSON model list.
+
+The connection is therefore local from DSH's perspective: DSH talks to
+`127.0.0.1`, while the managed proxy talks to the AI server. You do not paste
+the remote server URL into the DSH UI.
 
 Then run:
 
