@@ -156,6 +156,24 @@ The tested warm Q6 generation is about 47–48 tokens/second at 256K context.
 If the host is asleep, run `dsh` again: the wrapper wakes it through the
 Moonlight/wake relay before attempting SSH or model loading.
 
+### `dsh -l` says the session is already running, but requests return 503
+
+That message can mean the browser launcher is still listening on port 3080
+while the remote llama.cpp process has died. Check all three layers:
+
+```powershell
+Get-NetTCPConnection -State Listen -LocalPort 3080,1235,1238
+Test-NetConnection 100.71.113.77 -Port 1236
+ssh poopl@100.71.113.77 powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\AI-Server\scripts\llama-host.ps1 -Action Status
+```
+
+The fixed wrapper only reuses an existing session when the two local proxies
+and server port 1236 are reachable. Otherwise, run `dsh -l` again; it removes
+the stale DSH launcher/proxies and starts a fresh held server session. Do not
+delete session JSON files unless the DSH session itself is corrupt. A 503
+`model_proxy_error` with `fetch failed` means the remote service is unreachable,
+not that the browser token is invalid.
+
 ### Legacy LM Studio fallback
 
 LM Studio is no longer the production model server. Do not edit its
