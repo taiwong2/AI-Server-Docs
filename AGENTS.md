@@ -127,6 +127,14 @@ do not work around it silently.
 
 ---
 
+## 11. Keep the handbook remote
+
+When changing this handbook, commit the relevant documentation changes and
+push them to `origin/main` before reporting the work complete. Keep unrelated
+working-tree changes out of the commit; the goal is for the remote handbook to
+match the documented setup, not to publish machine-local experiments or
+credentials.
+
 ## Hard "do not"
 
 - Do NOT install Ollama. Native llama.cpp is the active inference stack; LM

@@ -23,6 +23,46 @@ There are two machines in this setup:
 
 The proxy is the client endpoint; the native service is not exposed publicly.
 
+## How the client connects to the local AI
+
+The normal request path is:
+
+```text
+Browser / DSH
+    -> http://127.0.0.1:3080       authenticated DSH web UI
+    -> http://127.0.0.1:1235/v1    local model proxy
+    -> http://<ai-server>:1236     native llama.cpp over the trusted network
+```
+
+The client proxy does not require the browser to know the AI server's model
+endpoint. `dsh-agentic.ps1` wakes the server when needed, opens the SSH-held
+server session, starts the local proxies, and keeps the GPU lease alive. The
+client's DSH settings therefore point to `127.0.0.1:1235`, not directly to
+port `1236`:
+
+```yaml
+baseURL: http://127.0.0.1:1235/v1
+```
+
+For a direct connectivity test from the client:
+
+```powershell
+tailscale ping <ai-server>
+Test-NetConnection <ai-server> -Port 1236
+Invoke-RestMethod http://127.0.0.1:1235/v1/models
+```
+
+For a server-side test, bypass the client proxy and query llama.cpp locally:
+
+```powershell
+ssh <ssh-user>@<ai-server> powershell.exe -NoProfile -Command "Invoke-RestMethod http://127.0.0.1:1236/v1/models"
+```
+
+If the server-side test works but the client proxy test fails, inspect the
+client wrapper/proxy logs. If the local proxy responds with `503` and
+`model_proxy_error`/`fetch failed`, the remote llama.cpp service is down or
+unreachable; check the server's `llama-host.ps1 -Action Status` output.
+
 ## 1. Prepare the client
 
 The client needs Windows PowerShell 5.1 or newer, Node.js 22.19 or newer,
