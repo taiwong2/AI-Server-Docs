@@ -40,6 +40,7 @@ The three things that make it different from a laptop you SSH into:
 | Not repeat an expensive mistake | [Best practices](docs/07-best-practices.md) |
 | Fix something that is broken | [Troubleshooting](docs/08-troubleshooting.md) |
 | Chat with it (Discord), run the local model as an agent | [Agents and chat](docs/09-agents-and-chat.md) |
+| Work on the box as a developer (Antoine), or manage developer access | [Developers](docs/12-developers.md) |
 | Install the DeepSeek Harness on another device | [DeepSeek Harness setup](docs/10-dsh-setup.md) |
 | Write a story, poem or lyrics with Gemma 4 | [Creative writing](docs/11-creative-writing.md) |
 

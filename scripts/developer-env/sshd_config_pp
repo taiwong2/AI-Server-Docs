@@ -1,0 +1,15 @@
+# sshd for Antoine's environment. Key-only, his user only, no forwarding
+# (forwarding would bypass pp-boot.sh's rules via sshd).
+Port 2222
+AllowUsers antoine
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin no
+AllowTcpForwarding no
+AllowStreamLocalForwarding no
+GatewayPorts no
+PermitTunnel no
+X11Forwarding no
+AuthorizedKeysFile .ssh/authorized_keys
+Subsystem sftp /usr/lib/openssh/sftp-server

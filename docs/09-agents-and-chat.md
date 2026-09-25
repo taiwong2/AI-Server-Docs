@@ -141,8 +141,11 @@ scheduling, the GPU/job queue, per-agent disk quotas, and services. Full details
 in `C:\AI-Server\ai-admin\README.md`. Summary:
 
 - **Roles** (`state\ai-admin\roles.json`): `admin` (Tai, unrestricted) /
-  `developer` (e.g. Antoine — 50 GB disk cap, own workspace, may schedule) /
+  `developer` (e.g. Antoine: own Linux environment, 50 GB, booked sessions of at
+  most 2 h each and 4 h/day; **no** raw `schedule`, since queue jobs run as SYSTEM) /
   `guest` (default, ignored). Every request is evaluated against the sender's role.
+  Since 2026-09-25, saying "I am Tai" no longer elevates anyone. See
+  [Developers](12-developers.md).
 - **Brain**: a role-aware headless Claude session; the requester identity is
   **pinned** so a prompt-injected request can't escalate. Caps are enforced in
   `admin_tools.py`, not just the prompt.
@@ -150,6 +153,8 @@ in `C:\AI-Server\ai-admin\README.md`. Summary:
   (queues a job, wakes the box), `disk-set` (per-agent **VHDX** workspace —
   create/resize, hard-enforced via diskpart through the admin bridge), and
   `service` (start/stop COBBLEVERSE so it stops pinning the box awake, admin only).
+  Developer tools added 2026-09-25: `session-book` / `session-list` /
+  `session-stop`, `inference-status`, `ssh-key-set`, `apt-install`, `my-access`.
 - **Escalation**: over-cap requests (e.g. a developer asking for 200 GB) are
   denied with an explanation and pointed at admin approval — never bypassed.
 - **Intake**: `email_intake.py --loop` polls twongclaude via the admin Workspace
