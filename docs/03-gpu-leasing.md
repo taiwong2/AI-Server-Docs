@@ -73,6 +73,13 @@ Measured on this box: DAT-2 super-resolution tiled at 512 peaks around 2.4 GB,
 and takes a 4 GB lease. A lowered claim (11 GB → 4 GB) on a diffusion job once
 left both cards over-committed with 66 MB free.
 
+## Who took a card (added 2026-09-28)
+
+Every lease now records the SSH client IP that created it (`owner_ip`, from
+`SSH_CONNECTION`; `local` when created by SYSTEM or the console) and appends an
+acquire/release/reap line to `C:\AI-Server\logs\gpu-leases.log`. `gpulease.py
+list` shows a `BY` column; `gpulease.py log [-n N]` prints the history.
+
 ## Do not
 
 - Do not read `nvidia-smi` and choose a card yourself.

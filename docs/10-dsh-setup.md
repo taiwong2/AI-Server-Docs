@@ -171,12 +171,21 @@ llm-pi-ai:
       baseURL: http://127.0.0.1:1235/v1
       models:
         - id: qwen3.8-27b-uncensored
+        - id: qwen3.8-flash-next-uncensored
+        - id: qwen3.8-flash-next-uncensored-1m
     tai-ai-server-child:
       api: openai-completions
       baseURL: http://127.0.0.1:1238/v1
       models:
         - id: qwen3.8-27b-child
 ```
+
+Model registration is **per-machine**: `cordis.patch.yml` is auto-loaded from
+`$DSH_HOME` (the harness's `home/`) as the user layer. A model added on one
+workstation does not appear on another — add the same `- id:` lines to each
+client's `cordis.patch.yml`. Verify with
+`dsh --profile headless --dump-config | grep flash-next`. See
+[`13-qwen3.8-flash-next.md`](13-qwen3.8-flash-next.md) for that model.
 
 Do not set the DSH provider URL to the server's `1236` address. Port `1236`
 is the unauthenticated native service; the client must use the local `1235`

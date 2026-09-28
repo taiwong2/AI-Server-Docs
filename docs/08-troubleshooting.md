@@ -181,3 +181,27 @@ LM Studio is no longer the production model server. Do not edit its
 service checks above; the DSH wrapper owns wake, leases, model switching, and
 the local proxy. The bundled LM Studio model files remain available as a
 fallback source for llama.cpp.
+
+## PowerShell mangles llama.cpp `-ot` values (2026-09-28)
+
+`Start-Process -FilePath llama-server -ArgumentList $array` silently corrupts any
+argument containing `| ( )` — e.g. the expert-placement regex
+`-ot "ffn_(gate|up|down)_exps\.weight=CUDA_Host,..."` — even when the element is
+double-quoted. llama-server then rejects it ("unknown buffer type") or drops the
+override. Cost: an hour of "why is it still on the wrong binary / wrong buffer".
+
+Fix used in `llama-host.ps1` and `tune.ps1`: write the exact command to a `.bat`
+(quoting values with special chars) and launch that via `cmd /c`, then bind to
+the resulting `llama-server` process by name (one runs at a time on :1236).
+
+## The model proxy could not spawn the native host by Popen (2026-09-28)
+
+`model-proxy.py` starting the `-Hold` native host with a detached
+`subprocess.Popen` did not reliably work: the nested launcher never ran (empty
+launch log, no `llama-server`). A CIM/`Start-Process` child of an SSH session
+also dies on disconnect, and a session-0 process cannot cleanly spawn the
+interactive-session launcher. Fix: the proxy writes the requested model to
+`state\llama-host\requested-model.txt` and triggers the `AI-NativeHost`
+scheduled task (LogonType Interactive, session 1), which reads that file and runs
+`llama-host.ps1 -Action Start -Hold`. Scheduled tasks are the reliable way to
+launch a persistent GPU host from a non-interactive context here.

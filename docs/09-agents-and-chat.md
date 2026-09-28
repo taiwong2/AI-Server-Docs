@@ -59,6 +59,12 @@ agentic tool loop: `run_shell` (PowerShell), `read_file`, `write_file`,
 
 ## DeepSeek Harness — local coding path (added 2026-09-14)
 
+> **Qwen3.8-Flash-Next (uncensored)** — a 125B/6B-active MoE thinking+vision model
+> — was added 2026-09-28 as `qwen3.8-flash-next-uncensored` (and a 1M-context
+> `-1m` id). It runs on a purpose-built expert-cache llama.cpp binary at ~36 tok/s.
+> Full details, tuning, and use: [`13-qwen3.8-flash-next.md`](13-qwen3.8-flash-next.md).
+
+
 The workstation now has DeepSeek Harness (DSH) installed for agentic coding.
 Its custom provider `tai-ai-server` points at the local DSH proxy
 (`http://127.0.0.1:1235/v1`), which forwards to the AI server's LAN-only native
@@ -87,7 +93,8 @@ exposed by the native host.
 The model picker supports switching models per session. To switch, click the
 current model button in the composer, choose `Model`, then choose a model under
 `Tai AI Server (llama.cpp)`. The available local choices currently include
-Qwen 3.8, Qwen 3.6, Gemma 4 12B/31B, Muse Glimmer, and AuthorMist. A switch
+Qwen3.8-Flash-Next (see below), Qwen 3.8, Qwen 3.6, Gemma 4 12B/31B, Muse
+Glimmer, and AuthorMist. A switch
 takes effect on the next request; existing sessions may retain their selected
 model until changed. The native host switches the selected model before a
 request. For the local Qwen path, the managed host script is:
