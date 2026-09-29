@@ -172,7 +172,7 @@ The WSL distro is set up as follows:
   `generateResolvConf=false`, a static `/etc/resolv.conf` of 1.1.1.1 / 8.8.8.8,
   `Acquire::ForceIPv4`, an IPv4 preference in `gai.conf`, and removing the
   Ubuntu `apt_news` hook, which also hung.
-- `antoine` has no sudo and a locked password. Root-only changes go through the
+- `antoine` has no sudo and no password (hash `*`, not the locked `!`, see troubleshooting). Root-only changes go through the
   `apt-install` and `ssh-key-set` tools.
 - `/usr/local/sbin/pp-boot.sh` runs as root at every start. It sets
   iptables/ip6tables OUTPUT rules: loopback only to 1234 and 20000–29999, LAN,
@@ -230,6 +230,11 @@ writes `state\ai-admin\sharee-ips.json`.
   relay":** it explained there is no cron, pointed to `autorun.sh` plus a daily
   booking (converting Paris to Pacific time), said the relay goes on 8899 during
   sessions, and asked for the SSH key.
+
+**Fixed 2026-09-29:** SSH with his real key was refused (`Permission denied
+(publickey)`) on 09-27 and 09-28, because `passwd -l` had left `!` in `/etc/shadow`.
+With `UsePAM no`, sshd treats that as a locked account. The fix was
+`usermod -p '*' antoine`. A login from the host with a test key was verified.
 
 **Not yet proven:** a booking that wakes the box *from sleep*. It uses the same
 `jobqueue --at` wake timer as every other timed job, but has not been observed

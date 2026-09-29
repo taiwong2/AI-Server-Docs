@@ -215,3 +215,13 @@ every admin tool, and the email administrator, fails with
 `jobqueue.json`) from Python instead, or write it with
 `[IO.File]::WriteAllText($p, $json, (New-Object Text.UTF8Encoding $false))`.
 Afterwards, check it with `admin_tools.py --as <email> my-access`.
+
+## Developer SSH refused with a correct key: `Permission denied (publickey)` (2026-09-29)
+
+Antoine's key was installed correctly (fingerprint matched, modes 700/600), yet
+sshd on 2222 still refused it. The cause was that `setup.sh` ran `passwd -l antoine`,
+which puts `!` in `/etc/shadow`. With `UsePAM no` (in `sshd_config_pp`), OpenSSH treats
+a `!` hash as a **locked account** and rejects the user before reading
+`authorized_keys`. The fix is `usermod -p '*' antoine`: there is still no usable password,
+but the account is not locked. `setup.sh` now does this. Check it with
+`grep '^antoine:' /etc/shadow | cut -d: -f2 | cut -c1`, which should print `*` and not `!`.

@@ -16,7 +16,9 @@ update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy >/dev/null 2>&1 |
 id antoine >/dev/null 2>&1 || useradd -m -s /bin/bash antoine
 # Ubuntu cloud images add the first user to sudo; make sure he is not.
 gpasswd -d antoine sudo >/dev/null 2>&1 || true
-passwd -l antoine >/dev/null
+# No password, but NOT locked: a '!' hash makes sshd (UsePAM no) refuse the user
+# before it reads authorized_keys. '*' = no password login possible, keys work.
+usermod -p '*' antoine
 install -d -m 700 -o antoine -g antoine /home/antoine/.ssh
 touch /home/antoine/.ssh/authorized_keys; chown antoine:antoine /home/antoine/.ssh/authorized_keys; chmod 600 /home/antoine/.ssh/authorized_keys
 install -m 755 /mnt/c/wsl/pp-setup/pp-boot.sh /usr/local/sbin/pp-boot.sh
