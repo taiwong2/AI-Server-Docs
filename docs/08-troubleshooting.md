@@ -205,3 +205,13 @@ interactive-session launcher. Fix: the proxy writes the requested model to
 scheduled task (LogonType Interactive, session 1), which reads that file and runs
 `llama-host.ps1 -Action Start -Hold`. Scheduled tasks are the reliable way to
 launch a persistent GPU host from a non-interactive context here.
+
+## Editing state JSON from PowerShell 5 breaks `roles.json` (2026-09-29)
+
+In Windows PowerShell 5.1, `ConvertTo-Json | Set-Content -Encoding UTF8` writes a
+**UTF-8 BOM**. `config.load_roles()` opens `roles.json` with plain `utf-8`, so
+every admin tool, and the email administrator, fails with
+`JSONDecodeError: Unexpected UTF-8 BOM`. Edit state JSON (`roles.json`,
+`jobqueue.json`) from Python instead, or write it with
+`[IO.File]::WriteAllText($p, $json, (New-Object Text.UTF8Encoding $false))`.
+Afterwards, check it with `admin_tools.py --as <email> my-access`.

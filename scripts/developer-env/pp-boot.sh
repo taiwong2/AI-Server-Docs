@@ -42,3 +42,5 @@ echo 0 > /proc/sys/fs/binfmt_misc/WSLInterop 2>/dev/null || true
 chmod 700 /run/WSL 2>/dev/null || true
 install -d -m 755 -o root -g root /run/sshd
 /usr/sbin/sshd -f /etc/ssh/sshd_config_pp
+# Always-on since 2026-09-29: start cron so his crontab fires (no systemd here).
+if [ -x /usr/sbin/cron ] && ! pgrep -x cron >/dev/null; then /usr/sbin/cron; fi

@@ -1,12 +1,13 @@
-# sshd for Antoine's environment. Key-only, his user only, no forwarding
-# (forwarding would bypass pp-boot.sh's rules via sshd).
+# sshd for Antoine's environment. Key-only, his user only.
+# Forwarding is allowed since 2026-09-29: forwarded connections leave from sshd
+# inside the distro, so pp-boot.sh's OUTPUT rules still apply to them.
 Port 2222
 AllowUsers antoine
 PubkeyAuthentication yes
 PasswordAuthentication no
 KbdInteractiveAuthentication no
 PermitRootLogin no
-AllowTcpForwarding no
+AllowTcpForwarding yes
 AllowStreamLocalForwarding no
 GatewayPorts no
 PermitTunnel no

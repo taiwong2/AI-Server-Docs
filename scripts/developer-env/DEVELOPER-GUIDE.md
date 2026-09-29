@@ -2,7 +2,7 @@
 
 This is the developer guide for Antoine and his agents. The AI overseer
 (email **twongclaude@gmail.com**) works from this same document. Decided by Tai
-on 2026-09-25.
+on 2026-09-25; time limits lifted 2026-09-29.
 
 ## What you have
 
@@ -14,36 +14,35 @@ on 2026-09-25.
   - From inside your machine: `http://127.0.0.1:1234/v1`
   - From pp-vps or your Mac over the tailnet: `http://100.71.113.77:1234/v1`
   - Use model `qwen3.8-27b`, one request at a time, batch work only. Back off on errors.
-- **SSH into your machine** with `ssh -p 2222 antoine@100.71.113.77`. It is key-only, so send the
-  overseer your public key first. It works only while a session is running.
+- **SSH into your machine** with `ssh -p 2222 antoine@100.71.113.77`. It is key-only
+  (your key is already installed). TCP forwarding works, e.g. `ssh -p 2222 -L 20001:127.0.0.1:20001 ...`
+  to reach one of your own services.
 - **Port 8899 on 100.71.113.77** forwards into your machine, for your own relay or
   API. Listen on `0.0.0.0:8899` inside.
 
-## The rule: the server has to sleep
+## Always on (since 2026-09-29)
 
-- Your machine runs **only during a booked session**. A session lasts up to **2 hours**. You get up to
-  **4 hours per day**. Days follow the box's local time, which is US Pacific.
-- When a session ends, your machine is stopped and every process is killed. Your files stay.
-- The box sleeps when it is idle. While it is asleep it cannot read email, so **book ahead**.
+Tai lifted the time limits. Your machine now runs **all the time**, and the box stays
+awake for it. No booking is needed.
 
-## Running things on a schedule: no cron needed
+- SSH, port 8899 and your own services are up around the clock. Long-running daemons,
+  relays and training runs are fine.
+- Session and daily caps are gone. You no longer need bookings; any existing ones only add
+  a GPU reservation and never stop your machine.
+- If your machine is ever restarted (a reboot, `wsl --shutdown` or a crash), it comes back
+  on its own within about a minute, and `~/autorun.sh` runs again. Use autorun to restart
+  your daemons.
 
-Cron and systemd timers inside your machine will never fire, because the machine is off
-between sessions. Use the session schedule instead:
+## Running things on a schedule
 
-1. Put your job in `~/autorun.sh` and make it executable (`chmod +x`). It starts
-   automatically at the beginning of every session, and its output goes to `~/autorun.log`.
-2. Ask the overseer to *"book a 60 min session daily at 03:00"*. The box wakes itself
-   at that time, runs your autorun, and goes back to sleep when the session ends.
-3. Your job is killed at the end of the session, so make it finish in time or checkpoint its work.
+Your machine is always on, so **cron works now**. `~/autorun.sh`, which runs each time your
+machine starts, is still the place to (re)launch long-running services.
 
 ## GPU
 
-- If your work uses CUDA, say so when you book, for example *"with 12 GB GPU"*. The overseer then
-  reserves that much VRAM on one card and writes `~/.gpu-env`. Run
-  `source ~/.gpu-env` to get `CUDA_VISIBLE_DEVICES`.
-- Don't use a GPU without a reservation. Tai's jobs share both cards.
-- LM Studio calls don't need a reservation.
+- Both RTX 3090s are visible with no reservation (`~/.gpu-env` no longer hides them).
+- Tai's own jobs share both cards, so check `nvidia-smi` before a big job and prefer the
+  card with free VRAM. LM Studio also lives on these cards.
 
 ## Network from inside your machine
 
@@ -57,8 +56,7 @@ between sessions. Use the session schedule instead:
 
 | Ask | Example |
 |---|---|
-| Book time | "book a 90 min session at 02:00", "book 60 min daily at 03:00 with 12 GB GPU" |
-| See or cancel | "list my sessions", "cancel session 1a2b3c", "stop my session now" |
+| Sessions (optional now) | "list my sessions", "cancel session 1a2b3c" |
 | SSH key | "set my ssh key: ssh-ed25519 AAAA... me@mac" |
 | Packages | "install apt packages: ffmpeg libpq-dev" |
 | Status | "inference status", "what can I do?" |
@@ -66,5 +64,7 @@ between sessions. Use the session schedule instead:
 ## Not available (ask Tai)
 
 - A Windows shell, SSH on port 22, or jobs in the server's own queue. Those jobs run as SYSTEM.
-- Changes to Tai's services, or sessions longer than the caps.
+- Root or sudo inside your machine, or lifting its firewall. On this box those would
+  reach Tai's private Windows services, so packages go through the overseer.
+- Changes to Tai's services.
 - Kloow on Tai's account.

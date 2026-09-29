@@ -4,8 +4,10 @@ Added 2026-09-25. **Part 1** is for the developer and their agents. **Part 2** i
 for Tai and admin agents: how the rules are enforced and where the pieces live.
 
 The policy, decided by Tai: *a developer can build whatever they want in their
-own 50 GB space, as long as it never keeps the server awake for more than
-**2 hours per session** or **4 hours per day**.*
+own 50 GB space.* The original time limits (2 h per session, 4 h per day) were
+**lifted for Antoine on 2026-09-29**: `pp-antoine` is now always on and holds
+the box awake. The security wall is unchanged: no root, the in-distro firewall,
+interop off, no Windows shell. See [Always-on](#always-on-since-2026-09-29).
 
 ---
 
@@ -28,35 +30,18 @@ with the same text:
 - **LM Studio**, which is OpenAI-compatible. Inside your machine it is at
   `http://127.0.0.1:1234/v1`. Over the tailnet it is at
   `http://100.71.113.77:1234/v1`. Use model `qwen3.8-27b`, one request at a time.
-- **SSH** with `ssh -p 2222 antoine@100.71.113.77`. It is key-only and works only
-  during a session.
+- **SSH** with `ssh -p 2222 antoine@100.71.113.77`. It is key-only, always up,
+  and TCP forwarding is allowed.
 - **Port 8899** on `100.71.113.77` forwards into your machine, for your own
   relay or API.
 
-### The rule: the server has to sleep
+### Always on, no caps (since 2026-09-29)
 
-- Your machine runs **only during a booked session**. A session lasts up to
-  2 hours, and you get up to 4 hours per day. Days follow the box's local time,
-  which is US Pacific.
-- When a session ends, the machine is terminated and every process dies. Your
-  files persist.
-- The box cannot read email while it is asleep, so **book ahead**.
-
-### Scheduled work: no cron
-
-Cron and systemd timers never fire, because the machine is off between sessions.
-Use the session schedule instead:
-
-1. Put the job in `~/autorun.sh` and run `chmod +x ~/autorun.sh`. It runs at the
-   start of every session, and its output goes to `~/autorun.log`.
-2. Book a recurring session, for example *"book 60 min daily at 03:00"*. The box
-   wakes itself, runs your autorun, and goes back to sleep afterwards.
-
-### GPU
-
-Reserve VRAM when you book, for example *"with 12 GB GPU"*. Then run
-`source ~/.gpu-env` to get `CUDA_VISIBLE_DEVICES`. Without a reservation,
-`~/.gpu-env` hides the GPUs. LM Studio calls don't need a reservation.
+- The machine runs all the time and the box stays awake for it. No booking is
+  needed, and existing bookings only add a GPU lease.
+- If it is restarted, it comes back within about a minute and `~/autorun.sh` runs again.
+- **cron works**. `pp-boot.sh` starts `cron`, because there is no systemd.
+- Both GPUs are visible without a reservation (`~/.gpu-env` unsets `CUDA_VISIBLE_DEVICES`).
 
 ### Network inside your machine
 
@@ -70,7 +55,7 @@ Email **twongclaude@gmail.com**:
 
 | Ask | Tool it runs |
 |---|---|
-| "book 90 min at 02:00 [daily] [with 12 GB GPU]" | `session-book --minutes 90 --at 02:00 [--daily] [--gpu-mb 12000]` |
+| "book 90 min at 02:00 [daily] [with 12 GB GPU]" (optional now) | `session-book --minutes 90 --at 02:00 [--daily] [--gpu-mb 12000]` |
 | "list my sessions" / "cancel 1a2b3c" / "stop my session now" | `session-list` / `session-stop --id` |
 | "set my ssh key: ssh-ed25519 AAAA…" | `ssh-key-set` |
 | "install apt packages: ffmpeg libpq-dev" | `apt-install` |
@@ -80,7 +65,9 @@ Email **twongclaude@gmail.com**:
 
 - a Windows shell, SSH on port 22, or jobs in `jobqueue` (queued jobs run as
   SYSTEM)
-- changes to Tai's services, or sessions beyond the caps
+- changes to Tai's services
+- root/sudo in `pp-antoine`, or lifting its firewall. Either one reaches the
+  unauthenticated Gmail MCPs, and root can re-enable interop, which means owning the box.
 - Kloow on Tai's account
 
 ---
@@ -93,8 +80,8 @@ Email **twongclaude@gmail.com**:
 
 | cap | developer | admin |
 |---|---|---|
-| `session_minutes_max` | 120 | 600 |
-| `session_minutes_per_day` | 240 | 1440 |
+| `session_minutes_max` | 1440 (was 120 until 2026-09-29) | 600 |
+| `session_minutes_per_day` | 1440 (was 240) | 1440 |
 | `can_schedule` (raw `jobqueue` jobs) | **false** | true |
 | `can_book_sessions`, `can_use_inference` | true | true |
 
@@ -107,7 +94,37 @@ Caps are enforced in `admin_tools.py`. The prompt's standing policy in
 and to correct mistaken assumptions such as cron. When the requester has an
 environment, the developer guide is appended to the prompt.
 
-### How a session holds the box awake, and only that long
+### Always-on (since 2026-09-29)
+
+Tai lifted Antoine's time limits. The pieces:
+
+- **`\AI-AntoineEnv`** (poopl, S4U, at startup, restarts on failure) runs
+  `ai-admin\antoine_always_on.py` (mirrored in `scripts/developer-env/`). Every
+  30 s it checks that `sshd` is running in `pp-antoine`. If it isn't, it re-runs
+  `pp-boot.sh`, rewrites `~/.gpu-env` (no GPU restriction), restarts a
+  `sleep infinity` keepalive and runs `~/autorun.sh`. If the environment is
+  already up, it only adopts it and does not re-run autorun.
+- It listens on **127.0.0.1:8897**, which was added to `jobqueue.json`
+  `busy_ports`, so `jobqueue.py status` shows "a server is listening on 8897" and
+  the box never sleeps while the keeper runs.
+- `devsession_launch.py` skips booting and `wsl --terminate` for `pp-antoine`
+  while always-on is enabled. A booked session then only adds its GPU lease and
+  the 8898 hold.
+- `sshd_config_pp` now has `AllowTcpForwarding yes`. Forwarded connections leave
+  from sshd *inside* the distro, so `pp-boot.sh`'s OUTPUT rules still apply to
+  them. Verified: 8000, 8001, 1235 and 8188 are still blocked from inside, and 1234 answers.
+- `pp-boot.sh` starts `cron`.
+- `dispatcher.py`'s standing policy, `DEVELOPER-GUIDE.md` and `~/README.md` were
+  updated to match.
+- **Kill switch:** create `state\ai-admin\antoine-always-on.disabled`. The 8897
+  hold closes and the environment is no longer restarted, but it is not
+  terminated. Run `wsl --terminate pp-antoine` for that. To remove always-on
+  entirely, run `schtasks /delete /tn AI-AntoineEnv /f`, drop 8897 from
+  `busy_ports`, and restore from `state\ai-admin\backup-20260929-antoine-unlimited\`.
+- Unchanged on purpose: no root, the firewall, interop and automount off,
+  `can_schedule` false, no :22. Disk stays at 50 GB because C: has only about 16 GB free.
+
+### How a booked session holds the box awake, and only that long
 
 ```
 session-book ──► dev-sessions.json row
@@ -228,7 +245,8 @@ end to end for `devsession`. Nor has an SSH login with a real key from pp-vps.
 | Code | `ai-admin\{admin_tools,dispatcher,config,devsession,devsession_launch}.py` |
 | Queue kind | `scripts\jobkinds\devsession.ps1` |
 | Env setup | `C:\wsl\pp-setup\` (mirrored in `scripts/developer-env/`) (`setup.sh`, `pp-boot.sh`, `sshd_config_pp`, `wsl.conf`); rootfs `C:\wsl\ubuntu-noble.tar.gz` |
-| Pre-change backup | `state\ai-admin\backup-20260925-antoine\` |
+| Always-on keeper | `ai-admin\antoine_always_on.py`, task `\AI-AntoineEnv`, log `logs\antoine-always-on.log` |
+| Pre-change backups | `state\ai-admin\backup-20260925-antoine\`, `state\ai-admin\backup-20260929-antoine-unlimited\` |
 
 ### Admin one-liners
 
