@@ -105,6 +105,16 @@ C:\AI-Server\scripts\llama-host.ps1 -Action Start -Model qwen3.8-27b-uncensored 
 
 ### GPU handoff for agentic coding
 
+> **AlphaClash is retired from this box (2026-10-03).** The workspace (372 GB)
+> was moved to `G:\My Drive\AI-Server-Archive\AlphaClash-Workspace` by
+> `scripts\archive_alphaclash.py` and deleted locally; every `AlphaClash-*`
+> scheduled task is Disabled, including `AlphaClash-ResumeTraining` (its target
+> `resume-all.ps1` no longer exists). The trainer pause/resume steps below are
+> therefore no-ops. Only `AlphaClash-Dashboard` still runs: a static server for
+> `C:\AI-Server\www\alphaclash` (reports/audits) on port 8787. The archive's
+> keep-awake port 8896 was removed from `busy_ports` on 2026-10-06 (backup
+> `state\jobqueue.json.bak-20261006-port8896`).
+
 Agentic coding and the long-running AlphaClash trainers share the two GPUs;
 the managed handoff pauses both trainers, leases both GPUs, and runs native
 llama.cpp with the Q6 256K profile.
