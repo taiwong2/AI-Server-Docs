@@ -225,3 +225,11 @@ a `!` hash as a **locked account** and rejects the user before reading
 `authorized_keys`. The fix is `usermod -p '*' antoine`: there is still no usable password,
 but the account is not locked. `setup.sh` now does this. Check it with
 `grep '^antoine:' /etc/shadow | cut -d: -f2 | cut -c1`, which should print `*` and not `!`.
+
+## pip fails over SSH with "WinError 448 ... untrusted mount point" (2026-10-07)
+
+`pip install` in an SSH session aborted with `[WinError 448] The path cannot be traversed because it contains an
+untrusted mount point: 'C:\Users\poopl\AppData\Local\Programs\OpenAI\Codex\bin'`. pip walks PATH entries to check
+script locations, and the Codex `bin` folder is a mount point that network logons treat as untrusted. Fix: drop that
+entry for the command, e.g. in PowerShell
+`$env:PATH = ($env:PATH -split ';' | ? { $_ -notmatch 'OpenAI\\Codex' }) -join ';'` and add `--no-warn-script-location`.

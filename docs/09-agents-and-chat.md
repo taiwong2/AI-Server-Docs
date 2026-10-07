@@ -111,7 +111,9 @@ C:\AI-Server\scripts\llama-host.ps1 -Action Start -Model qwen3.8-27b-uncensored 
 > scheduled task is Disabled, including `AlphaClash-ResumeTraining` (its target
 > `resume-all.ps1` no longer exists). The trainer pause/resume steps below are
 > therefore no-ops. Only `AlphaClash-Dashboard` still runs: a static server for
-> `C:\AI-Server\www\alphaclash` (reports/audits) on port 8787. The archive's
+> `C:\AI-Server\www\alphaclash` (reports/audits) on port 8787. A fresh workspace for the
+> **new** system (no training yet) lives at `C:\Users\poopl\Development\AlphaClash-Workspace`; see
+> [AlphaClash workspace](14-alphaclash-workspace.md). The archive's
 > keep-awake port 8896 was removed from `busy_ports` on 2026-10-06 (backup
 > `state\jobqueue.json.bak-20261006-port8896`).
 
