@@ -162,6 +162,30 @@ C:\Users\poopl\Development\AlphaClash-Workspace\data\basegen\forge\
 ```
 Refresh from the Mac: `tar czf` ~/Documents/ClashRuns/forge (with COPYFILE_DISABLE=1), scp, `tar xzf` here.
 
+## BaseFinder v5: 18.600 grid model training and scraped-screenshot parsing (2026-10-08)
+
+Trains BaseFinder's per-cell grid model (and level head) on the synthetic 18.600 set and parses every scraped
+screenshot. No new job kind and no packages installed; everything runs as queued `shell` jobs through
+`BaseFinder\scripts\bf18_job.py` (takes a `gpulease`, default 4,400 MB via `BF18_VRAM_MB`, pins
+`CUDA_VISIBLE_DEVICES`, runs the script as a child). Training is resumable: with `--chain N` the launcher
+resubmits the identical command (priority 4) when a 160-min chunk stops on its time limit, at most N times
+(`<out>\chain_count`), so every queue job stays inside `job_timeout_minutes` = 180.
+
+```
+data\basefinder\
+  synth18_v1\           full synthetic set: 24,000 samples as JPEG (basefinder_synth job, Format=jpg, Seed=1)
+  scraped_mac\scraped\  copy of the Mac's ~/Documents/ClashData/scraped (tar over ssh, 2026-10-08); the server's
+                        own scraper keeps writing data\basefinder\scraped\ -- the parser reads both, dedup by image_url
+  models\grid18_v1\     grid FCN run: best.pt, last.pt (resume), metadata.json, train.jsonl, chain*.log
+  models\level18_v1\    level head run: level.pt, metadata.json, crops_{train,val}.npz (crop cache), train.jsonl
+  parsed18_v1\          one layout JSON per screenshot (layouts\), index.jsonl, overlays\, levels\ (engine level
+                        JSON from ClashEngineering clashlab.basefinder.parsed_level convert-dir), contact\, REPORT.md
+```
+
+```
+python C:\AI-Server\scripts\jobqueue.py submit --kind shell --arg cmd="& 'C:\Users\poopl\miniconda3\envs\ai\python.exe' 'C:\Users\poopl\Development\AlphaClash-Workspace\BaseFinder\scripts\bf18_job.py' train --chain 3 --datasets <data>\synth18_v1 --out <data>\models\grid18_v1 --steps 40000 --batch 12 --width 1.25 --max-minutes 160"
+```
+
 ## Learned base designer (2026-10-08)
 
 ClashEngineering `clashlab/designer/` (README there): a masked-token (MaskGIT-objective) U-Net + transformer that

@@ -89,6 +89,34 @@ Rules for a job kind:
   a launcher so the queue does not need to know where the repo is checked out.
 - **Resolve paths explicitly** (AGENTS.md rule 7).
 
+## Lanes (added 2026-10-08)
+
+By default the queue runs **one job at a time**. A job may ask for a **lane**; at most one job runs per lane,
+and at most `max_lanes` lanes (state\jobqueue.json, now 4) run at once. Jobs without a lane are in `main`,
+so anything that does not opt in behaves exactly as before.
+
+```bash
+python $Q submit --kind shell --arg cmd="..." --lane gpu0      # next to whatever runs in main
+python $Q list                                                 # shows lane= per job
+```
+
+```python
+jobqueue.submit(kind="shell", args={"cmd": "..."}, lane="gpu0")
+```
+
+- The runner starts each lane's job in its own thread; locking, retries, timeouts and the sleep gates are unchanged
+  (running jobs still keep the box awake).
+- The queue does **not** pick GPUs. Two GPU jobs in different lanes must still each take a `gpulease`, which places
+  them on different cards or makes the second wait.
+- Lanes in use by the Clash RL system: `main` (BaseFinder training), `gpu0` (parsing / designer GPU work),
+  `designer`, `cpu` (scrapers, synthetic data).
+- Why: on 2026-10-08 the single queue left the second RTX 3090 and ~80% of the CPU idle while one training job held
+  the queue for 160-minute chunks.
+- Restarting the runner (`taskkill` the pid in `state\queue\.runner.pid`, then `schtasks /run /tn \AI-JobQueue`)
+  leaves running children alive; the new runner treats them as foreign and reaps them as "runner died" when they
+  exit, which requeues them unless `max_attempts` is reached. Set `max_attempts = attempts` on such jobs first if a
+  rerun is not wanted. Backup of the single-lane version: `scripts\jobqueue.py.bak-20261008-prelanes`.
+
 ## Job lifecycle
 
 ```
@@ -115,6 +143,7 @@ the top of every tick, so a killed runner never wedges the queue.
 | `remote_inbox` | false | drain a Supabase table of remote submits |
 | `busy_ports` | `[25565]` | a listening port here blocks sleep |
 | `max_attempts` | 2 | retries per job |
+| `max_lanes` | 3 (set to 4) | lanes that may run at once (see Lanes) |
 | `job_timeout_minutes` | 180 | a job outliving this is killed |
 
 **Write this file without a BOM.** PowerShell's `Out-File -Encoding utf8` adds
