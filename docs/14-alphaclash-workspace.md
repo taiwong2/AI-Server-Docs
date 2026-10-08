@@ -49,6 +49,27 @@ The .NET 3.1 SDK that was already installed is untouched.
 - The native ARM64 oracle in ClashEngineering (`tools/native_battle_*`) runs the original game code natively and is
   **Mac-only**; on this x86 box use the Unicorn validators instead.
 
+## Training and the website (ClashLab, 2026-10-07)
+
+The RL system's battles run on a separate Linux battle box (a Strix Halo; the Mac until it arrives). This box does
+two things for it:
+
+- **GPU learner** — job kind `clashlearner` (`C:\AI-Server\scripts\jobkinds\clashlearner.ps1`, source of truth
+  `ClashEngineering\ops\aiserver\clashlearner.ps1`). It takes a `gpulease` (8,000 MB), serves PPO updates on
+  **:8890** (tailnet; `Tailscale-In` allows it), and exits after 20 min without requests or after 170 min, inside
+  `job_timeout_minutes` = 180, releasing the lease. The coordinator on the battle box resubmits it over ssh when it
+  disappears (`--learner-autostart ai-server`) and reloads its weights into the new learner. By hand:
+  `python C:\AI-Server\scripts\jobqueue.py submit --kind clashlearner [--arg IdleExit=600]`.
+- **Website** — the `AlphaClash-Dashboard` task (:8787, `C:\AI-Server\www\alphaclash`) now serves the **ClashLab**
+  site (runs, learning curves, evals, battle videos), published from the battle box with `python -m clashlab
+  publish` (tar over ssh, only changed files; `.clashlab_manifest.json` tracks them). The old 9.256 page is kept as
+  `legacy.html`; `recordings\` and the audit notes are untouched.
+
+**torch on this box:** the learner uses the conda `ai` env (`C:\Users\poopl\miniconda3\envs\ai`, torch
+2.6.0+cu124). A current torch wheel installed into the ClashEngineering venv failed with *WinError 4551: An
+Application Control policy has blocked this file* (`torch\lib\shm.dll`) and was removed again — same cause as the
+numba/scipy pins in [Troubleshooting](08-troubleshooting.md).
+
 ## Rules that apply here
 
 - Heavy or long work goes through the job queue; GPUs only with a `gpulease` lease (AGENTS.md rules 1–2).
