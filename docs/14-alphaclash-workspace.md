@@ -120,9 +120,16 @@ network + robust line fits, then a rectified-space refiner). Data and models liv
 ```
 data\basefinder\reg18\
   renders_jpg\          588 CE game-look stills (492 train / 96 val suite levels) + exact affines (scripts/reg18_render.py)
-  models_v1\            coordinate net: reg18.pt (weights), last.pt (resume), eval.jsonl
-  refine_v1\            refiner: reg18_refine.pt, last.pt, eval.jsonl
-  *.train.log           per-run training logs
+  renders_war_jpg\      same levels on the war scenery
+  models_v1..v4\        coordinate net runs: reg18.pt (weights), last.pt (resume), eval.jsonl
+  refine_v1, refine_v2\ refiner runs: reg18_refine.pt, last.pt, eval.jsonl
+  current\              THE models register18 loads on this box by default (copied from a run, see BaseFinder
+                        docs/REGISTER18.md): reg18.pt, reg18_refine.pt, scenery_{default,war}.{png,json}
+  scenery\              scenery templates (APK art)
+  labels_scn.jsonl      exact scenery labels for the first 817 scraped screenshots (train/val/eval splits)
+  labels_unseen.jsonl   exact scenery labels for 1,597 later-scraped screenshots (664 labelled; held-out test set)
+  synth18_pilot.jsonl   agent synth's pilot renders as registrar labels
+  eval_*, cmp_*, zoom_* evaluation outputs; *.train.log per-run training logs
 data\basefinder\torch_home\   TORCH_HOME for the jobs (torchvision ImageNet weights, downloaded on first use)
 ```
 
@@ -130,6 +137,9 @@ GPU work goes through the queue as a `shell` job that runs `BaseFinder\scripts\r
 the launcher takes a `gpulease` (10,000 MB, or `REG18_VRAM_MB`), pins `CUDA_VISIBLE_DEVICES`, then runs the script as
 a child; runs stop themselves at `--max-minutes 160` and resume from `last.pt` when resubmitted. No new job kind,
 no packages installed. Note the queue is serial: a 160-min training chunk blocks every other queued job.
+Short GPU evals / small fine-tunes (minutes) were also run directly over ssh through the same launcher (it still
+takes the lease) while the serial queue was held by a long scraper job. The always-on LLM leaves ~4.7 GB per card
+leasable, so registrar runs then use `REG18_VRAM_MB=4400` and `--bs 6`.
 
 ## Rules that apply here
 
