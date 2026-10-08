@@ -70,6 +70,21 @@ two things for it:
 Application Control policy has blocked this file* (`torch\lib\shm.dll`) and was removed again — same cause as the
 numba/scipy pins in [Troubleshooting](08-troubleshooting.md).
 
+## BaseFinder 18.600 catalog and tests (2026-10-08)
+
+`BaseFinder\parser\catalog18.json` (exported by ClashEngineering `clashlab/basefinder/catalog_export.py`) makes the
+screenshot parser's classes, counts, footprints and levels 18.600-native for TH1-18; `BF_CATALOG=th11` keeps the
+archived TH11 pipeline. **pytest 9.1 was installed into the conda `ai` env** (2026-10-08) to run the BaseFinder
+tests on this box:
+
+```
+cd C:\Users\poopl\Development\AlphaClash-Workspace\BaseFinder
+C:\Users\poopl\miniconda3\envs\ai\python.exe -m pytest -q tests\test_catalog18.py
+```
+
+The tests run BaseFinder in the `ai` env (cv2) and call `ClashEngineering\.venv` (unicorn, game data) in a
+subprocess for the 18.600 layouts; the first run builds CE's engine id map (several minutes).
+
 ## Rules that apply here
 
 - Heavy or long work goes through the job queue; GPUs only with a `gpulease` lease (AGENTS.md rules 1–2).
