@@ -85,6 +85,32 @@ C:\Users\poopl\miniconda3\envs\ai\python.exe -m pytest -q tests\test_catalog18.p
 The tests run BaseFinder in the `ai` env (cv2) and call `ClashEngineering\.venv` (unicorn, game data) in a
 subprocess for the 18.600 layouts; the first run builds CE's engine id map (several minutes).
 
+## BaseFinder synthetic training data (2026-10-08)
+
+Game-look 18.600 screenshots of known layouts with exact labels, made on the CPU (no GPU lease) by
+ClashEngineering `clashlab/basefinder/synth.py`. **Data lives outside the repos** in a new directory:
+
+```
+C:\Users\poopl\Development\AlphaClash-Workspace\data\basefinder\
+  oracle_sim\apk\assets\{sc,font}   APK art (553 .sc/.sctx files) extracted from the 18.600 APK by extract_apk_art.py
+  gen7_snapshot\gen7.py               copy of BaseGen v7 (clashlab/basegen is not committed yet); the job uses it
+                                     only while ClashEngineering\clashlab\basegen\gen7.py is absent
+  synth18_pilot\                      pilot dataset: 640 samples (598 train / 42 val), 2.4 GB of PNG
+```
+
+**Installed into the conda `ai` env (2026-10-08): `zstandard 0.25.0` and `texture2ddecoder 1.0.6`** (the APK
+.sc decoder needs both; neither is blocked by Application Control).
+
+New job kind **`basefinder_synth`** (`C:\AI-Server\scripts\jobkinds\basefinder_synth.ps1`, source of truth
+`ClashEngineering\ops\aiserver\basefinder_synth.ps1`): 28 worker processes, resumable (resubmit the same
+arguments to continue), stops after `TimeLimit` = 165 min inside the 180-min job timeout. Measured: ~6 img/s
+(640 samples in 1.8 min, rate still climbing as the per-worker sprite caches warm up). A PNG sample averages
+3.75 MB, so 20,000 samples take about 75 GB.
+
+```
+python C:\AI-Server\scripts\jobqueue.py submit --kind basefinder_synth --arg Out=synth18_v1 --arg N=20000 --arg Seed=1
+```
+
 ## Rules that apply here
 
 - Heavy or long work goes through the job queue; GPUs only with a `gpulease` lease (AGENTS.md rules 1–2).
