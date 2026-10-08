@@ -111,6 +111,26 @@ arguments to continue), stops after `TimeLimit` = 165 min inside the 180-min job
 python C:\AI-Server\scripts\jobqueue.py submit --kind basefinder_synth --arg Out=synth18_v1 --arg N=20000 --arg Seed=1
 ```
 
+## BaseFinder 18.600 registration (2026-10-08)
+
+Screenshot -> grid affine for real 18.600 screenshots (`BaseFinder\parser\register18.py`: a dense iso-coordinate
+network + robust line fits, then a rectified-space refiner). Data and models live under
+`data\basefinder\reg18\` (outside the repos):
+
+```
+data\basefinder\reg18\
+  renders_jpg\          588 CE game-look stills (492 train / 96 val suite levels) + exact affines (scripts/reg18_render.py)
+  models_v1\            coordinate net: reg18.pt (weights), last.pt (resume), eval.jsonl
+  refine_v1\            refiner: reg18_refine.pt, last.pt, eval.jsonl
+  *.train.log           per-run training logs
+data\basefinder\torch_home\   TORCH_HOME for the jobs (torchvision ImageNet weights, downloaded on first use)
+```
+
+GPU work goes through the queue as a `shell` job that runs `BaseFinder\scripts\reg18_job.py {train|refine|eval|label}`;
+the launcher takes a `gpulease` (10,000 MB, or `REG18_VRAM_MB`), pins `CUDA_VISIBLE_DEVICES`, then runs the script as
+a child; runs stop themselves at `--max-minutes 160` and resume from `last.pt` when resubmitted. No new job kind,
+no packages installed. Note the queue is serial: a 160-min training chunk blocks every other queued job.
+
 ## Rules that apply here
 
 - Heavy or long work goes through the job queue; GPUs only with a `gpulease` lease (AGENTS.md rules 1–2).
