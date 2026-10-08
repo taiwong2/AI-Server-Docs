@@ -93,8 +93,8 @@ ClashEngineering `clashlab/basefinder/synth.py`. **Data lives outside the repos*
 ```
 C:\Users\poopl\Development\AlphaClash-Workspace\data\basefinder\
   oracle_sim\apk\assets\{sc,font}   APK art (553 .sc/.sctx files) extracted from the 18.600 APK by extract_apk_art.py
-  gen7_snapshot\gen7.py               copy of BaseGen v7 (clashlab/basegen is not committed yet); the job uses it
-                                     only while ClashEngineering\clashlab\basegen\gen7.py is absent
+  gen7_snapshot\gen7.py               old copy of BaseGen v7 v0; obsolete since 2026-10-08: clashlab/basegen is
+                                     committed (gen7 v1) and the job imports ClashEngineering\clashlab\basegen\gen7.py
   synth18_pilot\                      pilot dataset: 640 samples (598 train / 42 val), 2.4 GB of PNG
 ```
 
@@ -137,3 +137,17 @@ no packages installed. Note the queue is serial: a 160-min training chunk blocks
 - Run scripts by copying a `.ps1`/`.py` over and executing it; inline commands quoted through SSH break easily.
 - `pip` inside an SSH session fails with WinError 448 unless the `OpenAI\Codex\bin` entry is removed from PATH
   for that command (see [Troubleshooting](08-troubleshooting.md)).
+
+## BaseGen v7 forge results (2026-10-08)
+
+BaseGen v7 (ClashEngineering `clashlab/basegen/`: `gen7.py` generator, `forge.py` engine strength harness,
+`DESIGN.md` learned designer + league plan). Battles run on the Mac (ARM64 engine); the results are mirrored to the
+server, outside the repos (no job kind, no packages installed):
+
+```
+C:\Users\poopl\Development\AlphaClash-Workspace\data\basegen\forge\
+  battle_cache.jsonl          every forge battle (level sha1, policy, army, seed -> stars, destruction, G)
+  20261008-search-v1\         gen7 search TH9-18: summary.json, compare.json/.md, levels\*.level.json + meta, render\
+  *.log                       search / compare / register logs
+```
+Refresh from the Mac: `tar czf` ~/Documents/ClashRuns/forge (with COPYFILE_DISABLE=1), scp, `tar xzf` here.
