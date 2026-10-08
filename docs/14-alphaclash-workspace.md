@@ -161,3 +161,41 @@ C:\Users\poopl\Development\AlphaClash-Workspace\data\basegen\forge\
   *.log                       search / compare / register logs
 ```
 Refresh from the Mac: `tar czf` ~/Documents/ClashRuns/forge (with COPYFILE_DISABLE=1), scp, `tar xzf` here.
+
+## Learned base designer (2026-10-08)
+
+ClashEngineering `clashlab/designer/` (README there): a masked-token (MaskGIT-objective) U-Net + transformer that
+generates home layouts on BaseFinder's 44x44 class grid, decoded with BaseFinder's TH-aware decoder pieces, plus a
+heuristic placer for Hidden Teslas / hero flags / traps, a hard validity gate, a value model and an engine-in-the-loop
+fine-tuning step (battles on the Mac). **Data and models live outside the repos:**
+
+```
+C:\Users\poopl\Development\AlphaClash-Workspace\data\designer\
+  src\archive\<dir>\*.home.json     AlphaClash real payloads copied from the Drive archive (G: is per-user; SYSTEM
+                                    jobs cannot read it, so the dataset builder reads this copy)
+  dataset_<tag>\                    grids.npz, records.jsonl, report.json, enclosure_policy.json
+  runs\prior_<tag>\, runs\ft_*\     checkpoints (last.pt resume, best.pt, final.pt), metrics.jsonl, config.json
+  samples\<name>\                   levels\*.level.json + .meta.json, samples.jsonl, grids.npz, summary.json
+  improve\r<k>\                     candidates, picks, engine.json (from the Mac), extra.npz (fine-tuning weights)
+  value_v<k>.npz / .pkl             value-model data (built on the Mac from the forge cache) and model
+  realism_*.json                    realism reports
+  watch_<tag>.json, retrain_<tag>.submitted   parsed18 watcher state
+```
+
+New job kind **`basedesigner`** (`C:\AI-Server\scripts\jobkinds\basedesigner.ps1`, source of truth
+`ClashEngineering\ops\aiserver\basedesigner.ps1`). GPU work takes a `gpulease` (4,000 MB) through
+`clashlab.designer.job`; training stops itself at 150 min and resumes from `last.pt`. No packages installed.
+
+```
+python C:\AI-Server\scripts\jobqueue.py submit --kind basedesigner --arg Cmd=retrain [--arg Tag=v1]
+    dataset (incl. data\basefinder\parsed18_v1 when present) -> prior training (resubmits itself until done)
+    -> samples TH12-18 + realism report
+python C:\AI-Server\scripts\jobqueue.py submit --kind basedesigner --arg Cmd=watch
+    self-rescheduling hourly check (a few seconds per run, at most 72 checks): once parsed18_v1 has >= 1000
+    layouts and an unchanged count over 2 checks, it queues Cmd=retrain once
+python C:\AI-Server\scripts\jobqueue.py submit --kind basedesigner --arg Cmd=sample --arg Rest="--ckpt ... --out ..."
+```
+
+A watcher job (`Cmd=watch`, tag v1) was queued on 2026-10-08. Short GPU runs (minutes: smoke training, sampling)
+were also run directly over ssh through `clashlab.designer.job` (it still takes the lease) while the serial queue
+was held by the scraper / BaseFinder jobs.
