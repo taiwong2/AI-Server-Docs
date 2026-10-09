@@ -271,6 +271,34 @@ and tag v1b (completed parsed18_v0); the current model is `runs\prior_v1m` (fina
 were also run directly over ssh through `clashlab.designer.job` (it still takes the lease) while the serial queue
 was held by the scraper / BaseFinder jobs.
 
+## Designer AR: orbit-placement base designer (2026-10-09)
+
+ClashEngineering `clashlab/designer_ar/` (README there): the alternative learned designer (autoregressive placement
+over symmetric orbits; walls drawn as connected ears / rings, closed and waste-free by construction). It runs from its
+own checkout **`AlphaClash-Workspace\ce_designer_ar`**: a git clone of the server repo with
+`receive.denyCurrentBranch updateInstead` (the Mac pushes to it as remote `arsrv`, using
+`powershell -NoProfile -Command git receive-pack` as the receive-pack) and a directory junction
+`ce_designer_ar\artifacts -> ClashEngineering\artifacts` (game data / id map, read-only use). No packages installed.
+
+```
+C:\Users\poopl\Development\AlphaClash-Workspace\data\designer_ar\
+  parsed18_v1_compact.jsonl   parsed18_v1 layouts compacted (compact18.py); dataset_ar1\ (layouts.jsonl, report.json)
+  runs\<name>\               best.pt / last.pt / history.json / done (ar1, ar2, ft_r1 ...)
+  samples\<tag>\             levels\*.level.json + .meta.json, grids.npz, samples.jsonl, summary.json
+  extra_r*.jsonl              engine-weighted self-generated records (RWR fine-tuning)
+  realism_*.json, *.log       evaluation outputs; *.ps1 = the job scripts below
+```
+
+Jobs: kind `shell` in lanes **`designer_ar`** (data build, sampling, realism; CPU, up to 14-20 processes) and
+**`designer_ar2`** (long training). GPU work takes a `gpulease` (8,000 MB, job name `designer_ar`) through
+`clashlab.designer_ar.job`; training stops at 165-170 min and resumes from `last.pt` (the queue's retry resumes it).
+Scripts: `ds_build.ps1`, `train_ar1.ps1` / `train_ar2.ps1`, `ft.ps1 -Init -Out -Extra -Steps`,
+`sample_ar.ps1 -Run -Ckpt -Tag -N -Draws -Seed [-Temp] [-WallTemp] [-Groups]`, `realism.ps1 -Sets a,b -Out f.json`:
+
+```
+python C:\AI-Server\scripts\jobqueue.py submit --kind shell --lane designer_ar --requester designer_ar --arg cmd="powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\poopl\Development\AlphaClash-Workspace\data\designer_ar\sample_ar.ps1 -Run ar2 -Tag x -N 16"
+```
+
 ## scrape2: more real TH12-18 base screenshots (2026-10-09)
 
 Polite, resumable scrapers (ClashEngineering `tools/scrape/scrape2_*.py`, notes in `tools/scrape/SCRAPE2.md`) run
