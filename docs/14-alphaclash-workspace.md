@@ -117,6 +117,17 @@ arguments to continue), stops after `TimeLimit` = 165 min inside the 180-min job
 python C:\AI-Server\scripts\jobqueue.py submit --kind basefinder_synth --arg Out=synth18_v1 --arg N=20000 --arg Seed=1
 ```
 
+Parameters added 2026-10-09 (renderer v4, CE b58b102): `Ce` = the ClashEngineering checkout to run (default the
+workspace copy `ClashEngineering`; the renderer agent runs from its own clone **`AlphaClash-Workspace\ce_renderer`**,
+detached at the pushed commit, because other agents keep uncommitted edits in the workspace copy), `ThMin`
+(lowest TH for every layout source), `ParsedIds` (file restricting the `parsed` source, relative to
+`data\basefinder`), `RealBgDir` (a parse dir whose registered real screenshots give `real` scenery backgrounds),
+`V3Look=1` (switch the v4 realism off). v4 example (lane `renderer`):
+
+```
+python C:\AI-Server\scripts\jobqueue.py submit --kind basefinder_synth --lane renderer --arg Out=synth18_v4 --arg N=26000 --arg Seed=4 --arg Format=jpg --arg Ce=ce_renderer --arg ThMin=12 --arg Mix=parsed=0.6,gen7=0.4 --arg ParsedDir=parsed18_v3 --arg ParsedIds=synth18_v4_parsed_ids.txt --arg RealBgDir=parsed18_v3
+```
+
 ## BaseFinder 18.600 registration (2026-10-08)
 
 Screenshot -> grid affine for real 18.600 screenshots (`BaseFinder\parser\register18.py`: a dense iso-coordinate
@@ -197,6 +208,11 @@ data\basefinder\
   parsed18_v1\           2,817 parsed screenshots: layouts\ (BF JSON + diagnostics), levels\ (engine level JSON from
                          ClashEngineering clashlab.basefinder.parsed_level convert-dir), overlays\, contact\,
                          index.jsonl, stats.json, engine_verify.txt
+  synth18_v4\            renderer v4 synthetic set (Seed=4, TH12-18, JPEG): parsed18_v3 gold+silver layouts
+                         (synth18_v4_parsed_ids.txt, 2,550 ids from compare_v1_v3) 60 % + gen7 40 %; traps / teslas /
+                         hero banners / crafted defenses / mode variants / legacy era / real-scenery backgrounds;
+                         synth18_v4_smoke\ = 60-sample smoke test (deletable)
+  ce_renderer\ (workspace root, not data)  ClashEngineering clone the renderer agent runs synth jobs from
   compare_v1_v3\          parsed18_v1 vs parsed18_v3 agreement (BaseFinder scripts/parsed18_compare.py, CPU, ~3 min):
                          index.jsonl (v3 rows + agreement_confidence, train_tier gold/silver/review), consensus\<id>.json
                          (agreed objects + disputed_tiles), per_screenshot.jsonl, summary.json, REPORT.md, ANALYSIS.md,
@@ -292,3 +308,40 @@ ClashEngineering `tools/oracle_sim_src.py restore` pulls from here (falls back t
 this dir first) and checks every file against `tools/oracle_sim_src_manifest.json` (sha256). The Mac copy lives in
 CE `.toolchain/scratch/oracle_sim/src`, the corpus in `.toolchain/oracle_sim/corpus` (env `ORACLE_SIM_SRC`,
 `ORACLE_SIM_CORPUS`).
+
+## ClashLink data tunnel and the league (2026-10-09)
+
+**ClashLink hub** (ClashEngineering `clashlab/link`): the persistent data connection between the AI server, the battle
+box (Strix Halo; the Mac until then) and the Mac. TCP **8892** on every interface (tailnet `100.71.113.77`, LAN
+`192.168.1.24`); zstd-framed messages, HMAC token auth, durable queues with backpressure, versioned keys, resumable
+file transfer, submission of the whitelisted job kinds `basedesigner`, `clashlearner`, `clashlink`.
+
+- Runs as the scheduled task **`AlphaClash-ClashLink`** (logon trigger, user poopl, interactive token like
+  `AlphaClash-Dashboard`), not as a queue job: a hub job held one of the 5 queue lanes for its whole life. The task
+  runs `C:\AI-Server\tools\clashlink\hub.ps1` (source of truth `ClashEngineering\ops\aiserver\clashlink_hub_task.ps1`),
+  a loop that restarts the hub from the clean checkout **`AlphaClash-Workspace\ce_wf`** (git clone of the server repo,
+  the league's own checkout). Log `C:\AI-Server\logs\clashlink-hub.log`. After a `ce_wf` update:
+  `powershell -ExecutionPolicy Bypass -File C:\AI-Server\tools\clashlink\hub.ps1 -Restart` (ends the task, kills the
+  process on 8892, starts the task). Install / re-register: `... clashlink_hub_task.ps1 -Install`.
+- Firewall: inbound rule **`clashlink-hub`** (TCP 8892, all profiles), added 2026-10-09 next to `alphaclash-site`.
+  8892 is not in `busy_ports`: the hub does not keep the box awake.
+- Token: `C:\Users\poopl\.clashlink\token` (the same file on every box, never in git). Hub state (queues, keys):
+  `data\link\hub\`. File roots: `league` = `data\league` (rw), `runs` = `runs` (rw), `designer` / `basefinder` /
+  `basegen` = `data\<name>` (read-only).
+- Job kind **`clashlink`** (`jobkinds\clashlink.ps1`, source `ops\aiserver\clashlink.ps1`): `Role=learner` = the
+  league's PPO learner behind the hub (gpulease 8,000 MB, queue `learner.in` -> key `learner/<run>/weights`, exits
+  after 20 min idle / 170 min or on a shutdown message), submitted by the league in lane **`league`**. `Role=hub`
+  still exists as a fallback when the task is missing.
+- `C:\AI-Server\tools\clashlink\league_direct.ps1` (source `ops\aiserver\league_direct.ps1`): the same launchers run
+  directly over ssh. Only for short dry runs when every lane is taken (the league config `server.direct_after_s`
+  cancels a job that has not started by then and runs it this way). Long work stays in the queue.
+
+**League** (ClashEngineering `clashlab/league`, runbook in its README): the attacker <-> designer loop. It runs on the
+battle box; on this machine it only uses the hub, the `clashlink` learner job (lane `league`) and `basedesigner`
+jobs (lane `league`: `Cmd=improve Rest="propose ..."`, `Cmd=improve Rest="ftdata ..."`, `Cmd=train Rest="... --init
+... --extra ..."`). Data: `data\league\<name>\designer\gen<n>\` (proposals: `cands\levels`, `picks.json`,
+`candidates.json`, `engine.json` from the battle box, `extra.npz`) and `data\league\<name>\designer\D<k>\`
+(fine-tuned designers: `best.pt`, `last.pt`, `DONE`). Dry run 2026-10-09: league `dry1`.
+
+Throughput Mac <-> hub over the tailnet (WAN, 68.7 ms RTT, `python -m clashlab.link bench`): upload 7-9 MB/s,
+download ~4 MB/s whatever the stream count (the server's uplink); a 92 MB PPO batch goes as 4.5 MB of zstd in 1.07 s.
