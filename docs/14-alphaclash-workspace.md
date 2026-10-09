@@ -345,3 +345,40 @@ jobs (lane `league`: `Cmd=improve Rest="propose ..."`, `Cmd=improve Rest="ftdata
 
 Throughput Mac <-> hub over the tailnet (WAN, 68.7 ms RTT, `python -m clashlab.link bench`): upload 7-9 MB/s,
 download ~4 MB/s whatever the stream count (the server's uplink); a 92 MB PPO batch goes as 4.5 MB of zstd in 1.07 s.
+
+## ClashLink data tunnel and the league (2026-10-09)
+
+**ClashLink hub** (ClashEngineering `clashlab/link`): the persistent data connection between the AI server, the battle
+box (Strix Halo; the Mac until then) and the Mac. TCP **8892** on every interface (tailnet `100.71.113.77`, LAN
+`192.168.1.24`); zstd-framed messages, HMAC token auth, durable queues with backpressure, versioned keys, resumable
+file transfer, submission of the whitelisted job kinds `basedesigner`, `clashlearner`, `clashlink`.
+
+- Runs as the scheduled task **`AlphaClash-ClashLink`** (logon trigger, user poopl, interactive token like
+  `AlphaClash-Dashboard`), not as a queue job: a hub job held one of the 5 queue lanes for its whole life. The task
+  runs `C:\AI-Server\tools\clashlink\hub.ps1` (source of truth `ClashEngineering\ops\aiserver\clashlink_hub_task.ps1`),
+  a loop that restarts the hub from the clean checkout **`AlphaClash-Workspace\ce_wf`** (git clone of the server repo,
+  the league's own checkout). Log `C:\AI-Server\logs\clashlink-hub.log`. After a `ce_wf` update:
+  `powershell -ExecutionPolicy Bypass -File C:\AI-Server\tools\clashlink\hub.ps1 -Restart` (ends the task, kills the
+  process on 8892, starts the task). Install / re-register: `... clashlink_hub_task.ps1 -Install`.
+- Firewall: inbound rule **`clashlink-hub`** (TCP 8892, all profiles), added 2026-10-09 next to `alphaclash-site`.
+  8892 is not in `busy_ports`: the hub does not keep the box awake.
+- Token: `C:\Users\poopl\.clashlink\token` (the same file on every box, never in git). Hub state (queues, keys):
+  `data\link\hub\`. File roots: `league` = `data\league` (rw), `runs` = `runs` (rw), `designer` / `basefinder` /
+  `basegen` = `data\<name>` (read-only).
+- Job kind **`clashlink`** (`jobkinds\clashlink.ps1`, source `ops\aiserver\clashlink.ps1`): `Role=learner` = the
+  league's PPO learner behind the hub (gpulease 8,000 MB, queue `learner.in` -> key `learner/<run>/weights`, exits
+  after 20 min idle / 170 min or on a shutdown message), submitted by the league in lane **`league`**. `Role=hub`
+  still exists as a fallback when the task is missing.
+- `C:\AI-Server\tools\clashlink\league_direct.ps1` (source `ops\aiserver\league_direct.ps1`): the same launchers run
+  directly over ssh. Only for short dry runs when every lane is taken (the league config `server.direct_after_s`
+  cancels a job that has not started by then and runs it this way). Long work stays in the queue.
+
+**League** (ClashEngineering `clashlab/league`, runbook in its README): the attacker <-> designer loop. It runs on the
+battle box; on this machine it only uses the hub, the `clashlink` learner job (lane `league`) and `basedesigner`
+jobs (lane `league`: `Cmd=improve Rest="propose ..."`, `Cmd=improve Rest="ftdata ..."`, `Cmd=train Rest="... --init
+... --extra ..."`). Data: `data\league\<name>\designer\gen<n>\` (proposals: `cands\levels`, `picks.json`,
+`candidates.json`, `engine.json` from the battle box, `extra.npz`) and `data\league\<name>\designer\D<k>\`
+(fine-tuned designers: `best.pt`, `last.pt`, `DONE`). Dry run 2026-10-09: league `dry1`.
+
+Throughput Mac <-> hub over the tailnet (WAN, 68.7 ms RTT, `python -m clashlab.link bench`): upload 7-9 MB/s,
+download ~4 MB/s whatever the stream count (the server's uplink); a 92 MB PPO batch goes as 4.5 MB of zstd in 1.07 s.

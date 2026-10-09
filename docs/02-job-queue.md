@@ -66,6 +66,7 @@ Kinds are **files**, not a table in the code. `scripts\jobkinds\<kind>.ps1` or
 | `claude` | headless `claude -p` in a working directory you name |
 | `shell` | a PowerShell command (`--arg cmd="..."`) |
 | `clashlearner` | ClashLab PPO learner for the Clash RL system: GPU lease (8 GB) + HTTP on :8890, exits after 20 min idle or 170 min; `-Ce` picks the checkout (attacker runs: lane `attacker`, `ce_att`) — see [AlphaClash workspace](14-alphaclash-workspace.md) |
+| `clashlink` | ClashLink for the Clash RL league: `Role=learner` = PPO learner behind the ClashLink hub (GPU lease 8 GB, lane `league`, exits idle / 170 min / on a shutdown message); `Role=hub` = the hub as a job (fallback only: the hub normally runs as the scheduled task `AlphaClash-ClashLink`, so it does not hold a lane) — see [AlphaClash workspace](14-alphaclash-workspace.md) |
 
 ### Writing a new kind
 
@@ -109,7 +110,10 @@ jobqueue.submit(kind="shell", args={"cmd": "..."}, lane="gpu0")
 - The queue does **not** pick GPUs. Two GPU jobs in different lanes must still each take a `gpulease`, which places
   them on different cards or makes the second wait.
 - Lanes in use by the Clash RL system: `main` (BaseFinder training), `gpu0` (parsing / designer GPU work),
-  `designer`, `cpu` (scrapers, synthetic data).
+  `designer`, `cpu` (scrapers, synthetic data); since 2026-10-09 also `attacker`, `designer_ar`, `renderer`,
+  `scrape` and `league` (the league's learner + designer jobs, one after the other). The ClashLink hub left the queue
+  (scheduled task `AlphaClash-ClashLink`) because a hub job held a lane permanently; with `max_lanes` = 5 a new lane
+  often waits for another agent's lane to finish.
 - Why: on 2026-10-08 the single queue left the second RTX 3090 and ~80% of the CPU idle while one training job held
   the queue for 160-minute chunks.
 - Restarting the runner (`taskkill` the pid in `state\queue\.runner.pid`, then `schtasks /run /tn \AI-JobQueue`)
