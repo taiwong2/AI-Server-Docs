@@ -218,7 +218,9 @@ data\basefinder\
   synth18_v5\            synth v5 (Seed=5, JPEG, label_schema basefinder-synth18/5): traps drawn AND labelled on ~45 %
                          (traps_visible, traps, trap_attrs, owner_view), one wall level in ~72 %, facing / attack-mode
                          object_attrs, val split by split_key (real screenshot / designer sample); lanes synth5a
-                         (Start 0) + synth5b (Start 31000), N=31000 each, BelowNormal priority, Ce=ce_synth5
+                         (Start 0) + synth5b (Start 31000), N=31000 each, BelowNormal priority, Ce=ce_synth5.
+                         DONE 2026-10-09: 62,000 samples, 40.4 GB, err 0, ~2 h 45 min at ~6.4 img/s (2 x 12 workers);
+                         train 58,979 / val 3,021 (1,103 held-out layouts, 0 overlap); stats.json, manifest.jsonl
   synth18_v5_pool.jsonl.gz  v5 known-layout pool (CE `python -m clashlab.basefinder.layouts pool`): 990 cleaned + closed
                          real bases (compare_v1_v3 gold/silver consensus, parsed18_v3 ok; gt18 ids excluded) + 1,877
                          designer / designer_ar valid levels; .stats.json = counts and rejection reasons
