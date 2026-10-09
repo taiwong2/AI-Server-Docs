@@ -264,3 +264,21 @@ data\basefinder\scraped2\
   <site>\_skipped.jsonl, _errors.jsonl, _run.log, _candidates.json
 ```
 Sites: cocbases, basemelon, clash_bases_com, clashcodes, cocbase_net (re-check), clashofclans_layouts (re-check).
+
+## oracle_sim source pools backup (2026-10-09)
+
+A Mac temp cleanup deleted the session scratch that held the oracle_sim corpus sources. They were restored from the
+Drive archive and are now kept (191 small JSON files, 8 MB) at:
+
+```
+C:\Users\poopl\Development\AlphaClash-Workspace\data\oracle_sim_src\
+  pools_v4\ pools_v4max\   runs\pools_v4{,max}\train (6) + \holdout (2 v4_real)
+  pro_bases\ real_bases\ real_aug_tw\ (= runs\real_bases_aug2026_traps_walls) coevolve\ (runs\coevolve_pool)
+  basefinder\              AlphaClashBaseFinder\data\ml_datasets\th11_game_layouts\layouts (150)
+  basegen\                 BaseGen v6 seeds 7, 11, 23 (regenerated)
+```
+
+ClashEngineering `tools/oracle_sim_src.py restore` pulls from here (falls back to the Drive archive, copying into
+this dir first) and checks every file against `tools/oracle_sim_src_manifest.json` (sha256). The Mac copy lives in
+CE `.toolchain/scratch/oracle_sim/src`, the corpus in `.toolchain/oracle_sim/corpus` (env `ORACLE_SIM_SRC`,
+`ORACLE_SIM_CORPUS`).
