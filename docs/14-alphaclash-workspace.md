@@ -220,6 +220,8 @@ python C:\AI-Server\scripts\jobqueue.py submit --kind basedesigner --arg Cmd=wat
 python C:\AI-Server\scripts\jobqueue.py submit --kind basedesigner --arg Cmd=sample --arg Rest="--ckpt ... --out ..."
 ```
 
-A watcher job (`Cmd=watch`, tag v1) was queued on 2026-10-08. Short GPU runs (minutes: smoke training, sampling)
+Designer jobs go to job-queue lane **`designer`** (`--lane designer`; one job per lane). `Parsed=` picks the parse
+(`parsed18_v0` = BaseFinder's early parse, `parsed18_v1` = final). Watchers queued on 2026-10-08: tag v1 (parsed18_v1)
+and tag v1b (completed parsed18_v0); the current model is `runs\prior_v1aw` (early parse, wall tokens). Short GPU runs (minutes: smoke training, sampling)
 were also run directly over ssh through `clashlab.designer.job` (it still takes the lease) while the serial queue
 was held by the scraper / BaseFinder jobs.
