@@ -126,6 +126,9 @@ detached at the pushed commit, because other agents keep uncommitted edits in th
 
 ```
 python C:\AI-Server\scripts\jobqueue.py submit --kind basefinder_synth --lane renderer --arg Out=synth18_v4 --arg N=26000 --arg Seed=4 --arg Format=jpg --arg Ce=ce_renderer --arg ThMin=12 --arg Mix=parsed=0.6,gen7=0.4 --arg ParsedDir=parsed18_v3 --arg ParsedIds=synth18_v4_parsed_ids.txt --arg RealBgDir=parsed18_v3
+v5 options (2026-10-09): `V5=1` (labelled traps / wall policy / facing + modes), `PoolFile=synth18_v5_pool.jsonl.gz`,
+`BelowNormal=1` (the job and its workers run at below-normal CPU priority so training jobs keep their cores):
+python C:\AI-Server\scripts\jobqueue.py submit --kind basefinder_synth --lane synth5a --arg Out=synth18_v5 --arg Start=0 --arg N=31000 --arg Seed=5 --arg Workers=12 --arg Rpl=1 --arg Format=jpg --arg Ce=ce_synth5 --arg V5=1 --arg PoolFile=synth18_v5_pool.jsonl.gz --arg RealBgDir=parsed18_v3 --arg BelowNormal=1
 ```
 
 ## BaseFinder 18.600 registration (2026-10-08)
@@ -212,7 +215,16 @@ data\basefinder\
                          (synth18_v4_parsed_ids.txt, 2,550 ids from compare_v1_v3) 60 % + gen7 40 %; traps / teslas /
                          hero banners / crafted defenses / mode variants / legacy era / real-scenery backgrounds;
                          synth18_v4_smoke\ = 60-sample smoke test (deletable)
+  synth18_v5\            synth v5 (Seed=5, JPEG, label_schema basefinder-synth18/5): traps drawn AND labelled on ~45 %
+                         (traps_visible, traps, trap_attrs, owner_view), one wall level in ~72 %, facing / attack-mode
+                         object_attrs, val split by split_key (real screenshot / designer sample); lanes synth5a
+                         (Start 0) + synth5b (Start 31000), N=31000 each, BelowNormal priority, Ce=ce_synth5
+  synth18_v5_pool.jsonl.gz  v5 known-layout pool (CE `python -m clashlab.basefinder.layouts pool`): 990 cleaned + closed
+                         real bases (compare_v1_v3 gold/silver consensus, parsed18_v3 ok; gt18 ids excluded) + 1,877
+                         designer / designer_ar valid levels; .stats.json = counts and rejection reasons
   ce_renderer\ (workspace root, not data)  ClashEngineering clone the renderer agent runs synth jobs from
+  ce_synth5\ (workspace root, not data)  ClashEngineering clone the synth_v5 agent runs synth jobs from (push remote
+                         srv5 from the Mac; artifacts\ copied from ce_renderer)
   compare_v1_v3\          parsed18_v1 vs parsed18_v3 agreement (BaseFinder scripts/parsed18_compare.py, CPU, ~3 min):
                          index.jsonl (v3 rows + agreement_confidence, train_tier gold/silver/review), consensus\<id>.json
                          (agreed objects + disputed_tiles), per_screenshot.jsonl, summary.json, REPORT.md, ANALYSIS.md,
