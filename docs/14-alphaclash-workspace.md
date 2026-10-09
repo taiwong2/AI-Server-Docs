@@ -244,3 +244,23 @@ Designer jobs go to job-queue lane **`designer`** (`--lane designer`; one job pe
 and tag v1b (completed parsed18_v0); the current model is `runs\prior_v1m` (final parse parsed18_v1, wall tokens, merge-aware inventories; the watchers were cancelled after the manual retrain). Short GPU runs (minutes: smoke training, sampling)
 were also run directly over ssh through `clashlab.designer.job` (it still takes the lease) while the serial queue
 was held by the scraper / BaseFinder jobs.
+
+## scrape2: more real TH12-18 base screenshots (2026-10-09)
+
+Polite, resumable scrapers (ClashEngineering `tools/scrape/scrape2_*.py`, notes in `tools/scrape/SCRAPE2.md`) run
+from their own checkout `C:\Users\poopl\Development\AlphaClash-Workspace\ce_scrape` (files copied there; no git
+remote needed) in job-queue lane **`scrape`** (shell kind, `ce_scrape\tools\scrape\run_scrape2.ps1 -Mode scrape
+-Minutes 170`; resubmit the same command to continue, finished sites exit at once). CPU / network only, no GPU.
+Output (data, outside the repos):
+
+```
+data\basefinder\scraped2\
+  README.md                    layout + status meanings
+  _index\existing.jsonl        sha1 + 256-bit dhash of every image in scraped\ and scraped_mac\scraped\ (+ their urls)
+  _index\report.json           per site x TH status counts (scrape2_run.py report)
+  <site>\th<N>\images\         new, unique, full-size (width >= 1000) screenshots
+  <site>\th<N>\lowres\         new, unique, narrower originals
+  <site>\th<N>\manifest.jsonl  one record per base (th, title, category, source_url, image_url, share_link text, status)
+  <site>\_skipped.jsonl, _errors.jsonl, _run.log, _candidates.json
+```
+Sites: cocbases, basemelon, clash_bases_com, clashcodes, cocbase_net (re-check), clashofclans_layouts (re-check).
