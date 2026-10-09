@@ -279,7 +279,7 @@ python C:\AI-Server\scripts\jobqueue.py submit --kind basedesigner --arg Cmd=sam
 
 Designer jobs go to job-queue lane **`designer`** (`--lane designer`; one job per lane). `Parsed=` picks the parse
 (`parsed18_v0` = BaseFinder's early parse, `parsed18_v1` = final). Watchers queued on 2026-10-08: tag v1 (parsed18_v1)
-and tag v1b (completed parsed18_v0); the current model is `runs\prior_v1m` (final parse parsed18_v1, wall tokens, merge-aware inventories; the watchers were cancelled after the manual retrain). Short GPU runs (minutes: smoke training, sampling)
+and tag v1b (completed parsed18_v0); the current model is `runs\prior_v1n2` (v1n: wall rules, style conditioning, exact symmetry; earlier `prior_v1m`). Short GPU runs (minutes: smoke training, sampling)
 were also run directly over ssh through `clashlab.designer.job` (it still takes the lease) while the serial queue
 was held by the scraper / BaseFinder jobs.
 
