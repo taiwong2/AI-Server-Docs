@@ -162,29 +162,48 @@ C:\Users\poopl\Development\AlphaClash-Workspace\data\basegen\forge\
 ```
 Refresh from the Mac: `tar czf` ~/Documents/ClashRuns/forge (with COPYFILE_DISABLE=1), scp, `tar xzf` here.
 
-## BaseFinder v5: 18.600 grid model training and scraped-screenshot parsing (2026-10-08)
+## BaseFinder v5: 18.600 grid model training and scraped-screenshot parsing (2026-10-08/09)
 
-Trains BaseFinder's per-cell grid model (and level head) on the synthetic 18.600 set and parses every scraped
-screenshot. No new job kind and no packages installed; everything runs as queued `shell` jobs through
-`BaseFinder\scripts\bf18_job.py` (takes a `gpulease`, default 4,400 MB via `BF18_VRAM_MB`, pins
-`CUDA_VISIBLE_DEVICES`, runs the script as a child). Training is resumable: with `--chain N` the launcher
-resubmits the identical command (priority 4) when a 160-min chunk stops on its time limit, at most N times
-(`<out>\chain_count`), so every queue job stays inside `job_timeout_minutes` = 180.
+Trains BaseFinder's per-cell grid model and level head on synthetic 18.600 data and parses every scraped
+screenshot. No new job kind and no packages installed. Everything runs as queued `shell` jobs through
+`BaseFinder\scripts\bf18_job.py`, which:
+- takes a `gpulease` (default 4,400 MB, set by `BF18_VRAM_MB`);
+- pins `CUDA_VISIBLE_DEVICES`;
+- runs the script as a child.
+
+Grid training resumes from where it stopped. With `--chain N`, when a 160-min chunk stops on its time limit, the
+launcher resubmits the identical command at priority 4, in the same lane when `--lane` is given. It does this at
+most N times (counted in `<out>\chain_count`), so every queue job stays inside `job_timeout_minutes` = 180. The
+parse runs as 2 shards in their own queue lanes (`--shard K/2`, lanes `bfparse0` and `bfparse1`), with the CPU
+scenery-registration stage in process pools.
 
 ```
 data\basefinder\
-  synth18_v1\           full synthetic set: 24,000 samples as JPEG (basefinder_synth job, Format=jpg, Seed=1)
-  scraped_mac\scraped\  copy of the Mac's ~/Documents/ClashData/scraped (tar over ssh, 2026-10-08); the server's
-                        own scraper keeps writing data\basefinder\scraped\ -- the parser reads both, dedup by image_url
-  models\grid18_v1\     grid FCN run: best.pt, last.pt (resume), metadata.json, train.jsonl, chain*.log
-  models\level18_v1\    level head run: level.pt, metadata.json, crops_{train,val}.npz (crop cache), train.jsonl
-  parsed18_v1\          one layout JSON per screenshot (layouts\), index.jsonl, overlays\, levels\ (engine level
-                        JSON from ClashEngineering clashlab.basefinder.parsed_level convert-dir), contact\, REPORT.md
+  synth18_v1\            24,000 synthetic samples, JPEG (basefinder_synth job, Format=jpg, Seed=1; 45 min, 8.9 img/s);
+                         storages are drawn EMPTY in this set
+  synth18_v2\            16,000 samples (Seed=2) with storage fill levels + collector frames (CE 09e0bd1)
+  scraped_mac\scraped\   copy of the Mac's ~/Documents/ClashData/scraped (tar over ssh, 2026-10-08). The server's own
+                         scraper keeps writing data\basefinder\scraped\. The parser reads both and de-duplicates by image_url
+  models\grid18_v1\      first grid run (synth18_v1 only, stopped at step 6,200: empty-storage data)
+  models\grid18_v2\      grid run on v1+v2, 30,000 steps: best.pt / final.pt / last.pt, train.jsonl, chain*.log
+  models\grid18_v2_final\ THE grid model (final.pt of grid18_v2 as best.pt) + metadata.json + final_eval.json
+  models\level18_v1\     level head: level.pt, metadata.json, crops_{train,val}.npz (12 GB crop cache), run.log
+  parsed18_v1\           2,817 parsed screenshots: layouts\ (BF JSON + diagnostics), levels\ (engine level JSON from
+                         ClashEngineering clashlab.basefinder.parsed_level convert-dir), overlays\, contact\,
+                         index.jsonl, stats.json, engine_verify.txt
+  grid18_smoke, parse_probe*, models\grid18_*_snap|_best|_final   smoke tests and probes (deletable, except _final)
 ```
 
 ```
-python C:\AI-Server\scripts\jobqueue.py submit --kind shell --arg cmd="& 'C:\Users\poopl\miniconda3\envs\ai\python.exe' 'C:\Users\poopl\Development\AlphaClash-Workspace\BaseFinder\scripts\bf18_job.py' train --chain 3 --datasets <data>\synth18_v1 --out <data>\models\grid18_v1 --steps 40000 --batch 12 --width 1.25 --max-minutes 160"
+python C:\AI-Server\scripts\jobqueue.py submit --kind shell --arg cmd="& 'C:\Users\poopl\miniconda3\envs\ai\python.exe' 'C:\Users\poopl\Development\AlphaClash-Workspace\BaseFinder\scripts\bf18_job.py' train --chain 3 --datasets <data>\synth18_v1 <data>\synth18_v2 --out <data>\models\grid18_vN --steps 30000 --batch 12 --width 1.25 --max-minutes 160"
 ```
+
+Measured:
+- Grid training: about 36 img/s on one 3090 with 3.2 GB of VRAM; about 17 img/s while other jobs held the CPU.
+- Full synthetic val: object F1 0.981, wall F1 0.976.
+- Level head: 10 epochs on 455k crops in about 25 min, synthetic val exact 0.996.
+- Parse: about 1.5 s per screenshot per shard.
+- Engine load check (Mac): 30 of 30 parsed levels load completely.
 
 ## Learned base designer (2026-10-08)
 
