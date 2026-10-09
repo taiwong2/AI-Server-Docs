@@ -197,6 +197,10 @@ data\basefinder\
   parsed18_v1\           2,817 parsed screenshots: layouts\ (BF JSON + diagnostics), levels\ (engine level JSON from
                          ClashEngineering clashlab.basefinder.parsed_level convert-dir), overlays\, contact\,
                          index.jsonl, stats.json, engine_verify.txt
+  compare_v1_v3\          parsed18_v1 vs parsed18_v3 agreement (BaseFinder scripts/parsed18_compare.py, CPU, ~3 min):
+                         index.jsonl (v3 rows + agreement_confidence, train_tier gold/silver/review), consensus\<id>.json
+                         (agreed objects + disputed_tiles), per_screenshot.jsonl, summary.json, REPORT.md, ANALYSIS.md,
+                         heatmaps\, sheets\; log compare_v1_v3.log
   grid18_smoke, parse_probe*, models\grid18_*_snap|_best|_final   smoke tests and probes (deletable, except _final)
 ```
 
