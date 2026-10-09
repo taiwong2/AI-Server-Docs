@@ -111,9 +111,12 @@ jobqueue.submit(kind="shell", args={"cmd": "..."}, lane="gpu0")
   them on different cards or makes the second wait.
 - Lanes in use by the Clash RL system: `main` (BaseFinder training), `gpu0` (parsing / designer GPU work),
   `designer`, `cpu` (scrapers, synthetic data); since 2026-10-09 also `attacker`, `designer_ar`, `renderer`,
-  `scrape` and `league` (the league's learner + designer jobs, one after the other). The ClashLink hub left the queue
+  `scrape` and `league` (the league's learner + designer jobs, one after the other), `bf4a` / `bf4b` (BaseFinder
+  grid18_v4 training and sharded parsing), `synth5a` / `synth5b`. The ClashLink hub left the queue
   (scheduled task `AlphaClash-ClashLink`) because a hub job held a lane permanently; with `max_lanes` = 5 a new lane
   often waits for another agent's lane to finish.
+- `cancel` on a RUNNING job kills it but the queue may retry it (it came back as `try 2/2` and blocked its lane
+  waiting for a gpulease); cancel it a second time once it shows the new try.
 - Why: on 2026-10-08 the single queue left the second RTX 3090 and ~80% of the CPU idle while one training job held
   the queue for 160-minute chunks.
 - Restarting the runner (`taskkill` the pid in `state\queue\.runner.pid`, then `schtasks /run /tn \AI-JobQueue`)

@@ -231,6 +231,18 @@ data\basefinder\
                          index.jsonl (v3 rows + agreement_confidence, train_tier gold/silver/review), consensus\<id>.json
                          (agreed objects + disputed_tiles), per_screenshot.jsonl, summary.json, REPORT.md, ANALYSIS.md,
                          heatmaps\, sheets\; log compare_v1_v3.log
+  parsed18_v4\            BaseFinder v6 parse (2026-10-09): grid18_v3 + v5 decoder on the parsed18_v3 register18 affines
+                         (--reuse-affine), statuses from agreement with parsed18_v1 (scripts/parsed18_finalize.py, ok >= 0.94):
+                         ok 2,300 / review 517; stats.json, gt18_eval_{all,train,holdout}.json + GT18_EVAL_*.md;
+                         layouts keep the v5 status as status_v5; logs ..\parsed18_v4.shard{0,1}.log
+  real18_v4\              real-domain training data (BaseFinder scripts/build_real18_train.py): gt_train\ (gt18 train half,
+                         exact labels, 20) and consensus\ (compare_v1_v3 gold+silver consensus pseudo-labels, 2,309 train /
+                         150 val; disputed tiles + near-object rings ignored). Images are hard links to scraped\
+  tune18\                 bf_v4 experiments on the 40 gt18 shots: per-model parses with probs\ (gt_*), decoder tuning
+                         (tune*_*.json), holdout.json / HOLDOUT.md (deletable)
+  models\grid18_v4*       grid18_v4 (= v4a final), grid18_v4a/b/c/d, grid18_v4b_s14400: experiments, all worse than grid18_v3
+                         on the gt18 holdout (BaseFinder docs/PIPELINE_VERSIONS.md v6); grid18_v3 stays production
+  bf_v4train\ (workspace root, not data)  BaseFinder clone (detached at origin/main) the bf_v4 train / parse jobs ran from
   grid18_smoke, parse_probe*, models\grid18_*_snap|_best|_final   smoke tests and probes (deletable, except _final)
 ```
 
@@ -406,3 +418,5 @@ val numbers are same-renderer).
   (BaseFinder `scripts/gt18_eval.py` on parsed18_v1 / parsed18_v3).
 - Re-run the metrics: `cd BaseFinder && python scripts\gt18_eval.py --parse ..\data\basefinder\parsed18_vN [...]
   --md ..\data\basefinder\gt18\EVAL.md`.
+- `split.json` (2026-10-09, BaseFinder `scripts/build_real18_train.py`): 20 `train` / 20 `holdout` ids. `gt18_eval.py
+  --split holdout` gives the final real number; tune and train only on `train` (grid18_v4 runs trained on it).
