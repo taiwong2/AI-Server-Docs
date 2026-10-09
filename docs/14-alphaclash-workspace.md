@@ -60,6 +60,12 @@ two things for it:
   `job_timeout_minutes` = 180, releasing the lease. The coordinator on the battle box resubmits it over ssh when it
   disappears (`--learner-autostart ai-server`) and reloads its weights into the new learner. By hand:
   `python C:\AI-Server\scripts\jobqueue.py submit --kind clashlearner [--arg IdleExit=600]`.
+  Since 2026-10-09 the kind takes **`-Ce <checkout>`** (default: the main `ClashEngineering` working copy) and the
+  attacker runs submit it in lane **`attacker`** from their own checkout **`AlphaClash-Workspace\ce_att`** (git clone
+  of the server repo, branch `attacker`, `receive.denyCurrentBranch updateInstead`; the Mac pushes to it as remote
+  `aiserver-att`), so the learner never imports another agent's uncommitted edits:
+  `python C:\AI-Server\scripts\jobqueue.py submit --kind clashlearner --lane attacker --arg Ce=C:\Users\poopl\Development\AlphaClash-Workspace\ce_att`.
+  Previous launcher kept as `jobkinds\clashlearner.ps1.bak-20261009`.
 - **Website** — the `AlphaClash-Dashboard` task (:8787, `C:\AI-Server\www\alphaclash`) now serves the **ClashLab**
   site (runs, learning curves, evals, battle videos), published from the battle box with `python -m clashlab
   publish` (tar over ssh, only changed files; `.clashlab_manifest.json` tracks them). The old 9.256 page is kept as

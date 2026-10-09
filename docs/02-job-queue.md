@@ -65,7 +65,7 @@ Kinds are **files**, not a table in the code. `scripts\jobkinds\<kind>.ps1` or
 | `image` | background extension + super-resolution — see [Imaging](04-imaging.md) |
 | `claude` | headless `claude -p` in a working directory you name |
 | `shell` | a PowerShell command (`--arg cmd="..."`) |
-| `clashlearner` | ClashLab PPO learner for the Clash RL system: GPU lease (8 GB) + HTTP on :8890, exits after 20 min idle or 170 min — see [AlphaClash workspace](14-alphaclash-workspace.md) |
+| `clashlearner` | ClashLab PPO learner for the Clash RL system: GPU lease (8 GB) + HTTP on :8890, exits after 20 min idle or 170 min; `-Ce` picks the checkout (attacker runs: lane `attacker`, `ce_att`) — see [AlphaClash workspace](14-alphaclash-workspace.md) |
 
 ### Writing a new kind
 
