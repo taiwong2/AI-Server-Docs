@@ -40,6 +40,20 @@ Hyper-V firewall also blocks inbound. Unix sockets work, and so does Windows int
 * actor hub (remote actor hosts, e.g. the Mac): scheduled task **AI-ClashSim-Relay** runs `C:\WSL\tcp_to_wsl.py
   0.0.0.0:8893 /run/clash/hub.sock` (per connection: `wsl.exe -d clash-sim -u root -- socat STDIO UNIX-CONNECT:...`).
   Firewall rule **clash-sim-actor-hub**: TCP 8893 inbound from the tailnet (100.64.0.0/10) only.
+* outbound to the AI Server 2 hub (CA-4 attacker, attv3; 2026-10-10): clash-sim cannot reach the tailnet
+  (100.65.60.112 / 192.168.10.9 both refused) but Windows can. Scheduled task **AI-ClashSim-Attv3Relay** (S4U,
+  poopl, at startup, restart on failure; `C:\WSL\attv3_relay_task.ps1`) holds a `wsl.exe` session running
+  `/opt/clash/bin/attv3_hubrelay.sh`: `socat UNIX-LISTEN:/run/clash/attv3_hub.sock,fork EXEC:/opt/clash/bin/attv3_hubport`
+  (= Windows `python.exe C:\WSL\stdio_tcp.py 100.65.60.112 8895`). WSL interop only works inside a live
+  `wsl.exe` session: a systemd unit or a SYSTEM job-queue job cannot run the relay (socat children exit with EOF /
+  WSL_E_LOCAL_SYSTEM_NOT_SUPPORTED). Remote actors connect with `--connect unix:/run/clash/attv3_hub.sock`.
+  Stop: `type nul > C:\WSL\attv3-relay.stop`.
+* CA-4 learner keeper: scheduled task **AI-Attv3LearnerKeeper** (S4U, `C:\WSL\attv3_learner_keeper.ps1`) resubmits the
+  `clashlearner` job (lane attv3-learner, ce_attv3 checkout, :8891) when :8891 stops answering. Stop:
+  `type nul > C:\WSL\attv3-learner.stop`.
+* CA-4 GPU policy in clash-sim: the job-queue job `clashpy clashlab.train.gpulease_hold` holds a gpulease and writes the
+  card index to `C:\Users\poopl\attv3_lease.txt`; units set `CUDA_VISIBLE_DEVICES` from it (CUDA torch venv
+  `/opt/clash/attv3_cuda`). attv3 units: `attv3-*` (systemd-run, MemoryMax caps).
 * DNS: the generated resolv.conf points at fec0:: resolvers that do not answer; `/etc/resolv.conf` is static
   (192.168.1.1, 1.1.1.1) with `generateResolvConf = false` and systemd-resolved disabled.
 
