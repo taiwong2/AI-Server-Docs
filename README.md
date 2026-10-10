@@ -50,6 +50,7 @@ live on **AI Server 2** — see [AI Server 2](docs/15-ai-server-2-battle-box.md)
 | Use the Flash-Next LLM on AI Server 2 (Strix Halo, gufo), or turn it on/off | [AI Server 2 (Strix Halo) LLM](docs/17-ai-server-2-llm.md) |
 | Use AI Server 2 (the Clash battle box: engine, league battle workers) | [AI Server 2 battle box](docs/15-ai-server-2-battle-box.md) |
 | Wake AI Server 2, see why it is (not) asleep, keep it awake | [AI Server 2 wake and power](docs/16-ai-server-2-wake-and-power.md) |
+| Train designer / BaseFinder models on Colab so the 3090s stay on the attacker | [Colab burst GPU](docs/18-colab-burst-gpu.md) |
 
 Agent skills live in [`skills/`](skills/) — drop them into a project's
 `.claude/skills/` (or your harness's equivalent) and an agent gains these

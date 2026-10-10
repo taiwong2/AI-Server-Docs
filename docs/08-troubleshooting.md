@@ -249,3 +249,11 @@ SYSTEM and Administrators, owned by Administrators:
 `cv2.setNumThreads(1)`: the parent had already started OpenCV's thread pool, and a **forked** child waits on a lock
 whose owner thread does not exist in the child. Windows spawns its workers, so it never happened here. Fix: start the
 parent with one OpenCV thread, `OPENCV_FOR_THREADS_NUM=1` (set by ClashEngineering `ops/strixhalo/jobs/basefinder_parse.sh`).
+
+### Colab: a job hangs, or a nameless VM keeps billing
+
+`colab exec` against a VM that had just been released hung, and the account got a fresh nameless CPU VM (`[?]` in
+`colab sessions`) that billed until it was unassigned by endpoint. ClashEngineering's `clashlab/colab` kills every CLI
+call at its timeout and checks for orphans when a session is lost. To clean up by hand:
+`python -m clashlab.colab sweep --orphans --gpu CPU` (or `A100` / `L4`). Check `colab usage`: "Active assignments"
+must be 0 when no job runs. See [docs/18](18-colab-burst-gpu.md).
