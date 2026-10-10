@@ -43,6 +43,7 @@ The three things that make it different from a laptop you SSH into:
 | Work on the box as a developer (Antoine), or manage developer access | [Developers](docs/12-developers.md) |
 | Install the DeepSeek Harness on another device | [DeepSeek Harness setup](docs/10-dsh-setup.md) |
 | Write a story, poem or lyrics with Gemma 4 | [Creative writing](docs/11-creative-writing.md) |
+| Use AI Server 2 (the Clash battle box: engine, league battle workers) | [AI Server 2 battle box](docs/15-ai-server-2-battle-box.md) |
 
 Agent skills live in [`skills/`](skills/) — drop them into a project's
 `.claude/skills/` (or your harness's equivalent) and an agent gains these

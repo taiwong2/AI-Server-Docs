@@ -51,8 +51,8 @@ The .NET 3.1 SDK that was already installed is untouched.
 
 ## Training and the website (ClashLab, 2026-10-07)
 
-The RL system's battles run on a separate Linux battle box (a Strix Halo; the Mac until it arrives). This box does
-two things for it:
+The RL system's battles run on a separate Linux battle box: **AI Server 2** since 2026-10-09 (Strix Halo, `ai-server-2`, see
+[AI Server 2 battle box](15-ai-server-2-battle-box.md); before that, the Mac). This box does two things for it:
 
 - **GPU learner** — job kind `clashlearner` (`C:\AI-Server\scripts\jobkinds\clashlearner.ps1`, source of truth
   `ClashEngineering\ops\aiserver\clashlearner.ps1`). It takes a `gpulease` (8,000 MB), serves PPO updates on
@@ -366,7 +366,7 @@ CE `.toolchain/scratch/oracle_sim/src`, the corpus in `.toolchain/oracle_sim/cor
 ## ClashLink data tunnel and the league (2026-10-09)
 
 **ClashLink hub** (ClashEngineering `clashlab/link`): the persistent data connection between the AI server, the battle
-box (Strix Halo; the Mac until then) and the Mac. TCP **8892** on every interface (tailnet `100.71.113.77`, LAN
+box (AI Server 2, `100.65.60.112`, which reaches the hub over the tailnet) and the Mac. TCP **8892** on every interface (tailnet `100.71.113.77`, LAN
 `192.168.1.24`); zstd-framed messages, HMAC token auth, durable queues with backpressure, versioned keys, resumable
 file transfer, submission of the whitelisted job kinds `basedesigner`, `clashlearner`, `clashlink`.
 
