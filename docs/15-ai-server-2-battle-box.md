@@ -69,6 +69,13 @@ ClashEngineering: env.sh sets BF_ROOT to `$CE/basefinder` once `~/ClashEngineeri
 grid18_v5a/b, grid18_v3, level18_v2 (no last.pt / snapshots), reg18/current, oracle_sim, torch_home, gt18, scraped
 sets (pull running); designer_ar dataset_ar1 + runs v2_ft2 / v21_ft1.
 
+Grid designer (dsg-grid-v1.5) self-training on the box: worktree `~/ce_dsg15` (branch agent/dsg-grid-v15, data links via
+`tools/agent_worktree.sh --link ~/ce_dsg15`), lane `dsg15` at **<= 4 CPUs** (designers share ~10 CPUs; the attacker
+has priority), data under `~/ClashRuns/designer/` (dataset_v1n2, dataset_q0.8, orbit/ seeds + extra_rN.npz,
+samples/, runs/, dataset_stN). Round script `~/ClashRuns/designer/st_round.sh PREV R` (sampling + next training set);
+the GPU fine-tune of each round goes to Colab (`clashlab.colab grid-designer`, data pulled straight from the box) while
+the attacker holds AI Server 1, else to the AI Server 1 queue. Driver: Mac `~/Documents/ClashRuns/designer/tools/selftrain2.sh`.
+
 - `ops/strixhalo/wsync.py pull|push SRC DST`: AI Server 1 has no rsync. It compares (path, size, mtime) lists and
   moves only missing / changed files as tar-over-ssh chunks, with retries (the WAN resets connections). Nothing is
   deleted. `--settle/--watch/--until-file` stream a growing directory.
