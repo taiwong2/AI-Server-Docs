@@ -112,7 +112,8 @@ jobqueue.submit(kind="shell", args={"cmd": "..."}, lane="gpu0")
 - Lanes in use by the Clash RL system: `main` (BaseFinder training), `gpu0` (parsing / designer GPU work),
   `designer`, `cpu` (scrapers, synthetic data); since 2026-10-09 also `attacker`, `designer_ar`, `renderer`,
   `scrape` and `league` (the league's learner + designer jobs, one after the other), `bf4a` / `bf4b` (BaseFinder
-  grid18_v4 training and sharded parsing), `synth5a` / `synth5b`. The ClashLink hub left the queue
+  grid18_v4 training and sharded parsing), `synth5a` / `synth5b`, `bf5a` / `bf5b` / `bf5lvl` (BaseFinder v7 grid18_v5 /
+  level18_v2 training and evals) and `bf5p0`..`bf5p3` (parsed18_v5 shards). The ClashLink hub left the queue
   (scheduled task `AlphaClash-ClashLink`) because a hub job held a lane permanently; with `max_lanes` = 5 a new lane
   often waits for another agent's lane to finish.
 - `cancel` on a RUNNING job kills it but the queue may retry it (it came back as `try 2/2` and blocked its lane

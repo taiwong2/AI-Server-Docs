@@ -420,3 +420,30 @@ val numbers are same-renderer).
   --md ..\data\basefinder\gt18\EVAL.md`.
 - `split.json` (2026-10-09, BaseFinder `scripts/build_real18_train.py`): 20 `train` / 20 `holdout` ids. `gt18_eval.py
   --split holdout` gives the final real number; tune and train only on `train` (grid18_v4 runs trained on it).
+
+## BaseFinder v7: catalog v2, traps, composed ensemble (2026-10-09)
+
+Checkouts (my own, so the shared copies are never touched): `C:\Users\poopl\Development\AlphaClash-Workspace\bf_v5`
+(BaseFinder; push from the Mac with remote `srvv5`, receivepack/uploadpack `powershell -NoProfile -Command git ...`,
+`receive.denyCurrentBranch updateInstead`) and `ce_v5` (ClashEngineering origin/main; `artifacts\game_data`,
+`artifacts\recovered\libg.so` and `artifacts\validation\native_battle_cov_data_ids.json` copied from `ce_synth5`, needed
+by the still renderer that BaseFinder's render-and-compare imports through `$CE_ROOT` / ce_v5). BaseFinder's
+`bf18_job.py` gained `BF18_GPU` (pin the leased card).
+
+```
+data\basefinder\
+  models\grid18_v5a, grid18_v5b   66-class (catalog v2) grid models, fine-tuned from grid18_v3 on synth18_v5 (+v1-v4, gt18
+                                 train half); final_eval.json = full synth18_v5 val
+  models\level18_v2              level + facing + attack-mode crop model (60 types; crops_val.npz kept, crops_train deleted)
+  real18_v5\gt_train|gt_holdout  gt18 halves with render-refined affines (diagnostic; NOT used for training)
+  gt18\labels_traps\            20 trap-showing screenshots, render-adjudicated (traps labelled; _history\ = v3 seeds)
+  gt18\labels_v7\               gt18 labels re-anchored on refined affines with render-only one-tile building fixes
+  gt18\EVAL_v7_*.md, eval_v7_*.json, tune_v7_comp_train.json
+  parsed18_v5_gt_v5ens|v5comp\   evaluation parses of the 60 GT screenshots (probs\ dumped)
+  parsed18_v5\                   THE v7 parse of scraped + scraped2 (composed ensemble, decoder v7, errmaps\, overlays\,
+                                 stats.json); shards bf5p0..3 via bf18_job parse --chain 4
+```
+Production command: `BF_CATALOG=18600v2 bf18_job.py parse ... --decoder v7 --grid-dir models\grid18_v5a models\grid18_v5b
+--base-grid models\grid18_v3 --level-dir models\level18_v2 --errmaps --overlays`. Parse cost ~1.7 s / screenshot alone,
+~4-5 s per shard with four shards (CPU-bound: register18 scenery stage + CE renders). Details: BaseFinder
+`docs/PIPELINE_VERSIONS.md` (v7) and `docs/REGISTER18.md` (render-and-compare check of the registration).
