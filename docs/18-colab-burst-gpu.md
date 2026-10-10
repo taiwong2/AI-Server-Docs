@@ -31,10 +31,12 @@ answers `colab` (exit 0), `ai-server` (10) or `ai-server-wait` (11).
 
 ```sh
 # dsg-orbit fine-tune; bare paths = data\designer_ar\... on this server (copied once to the Mac's cache, then uploaded)
-python -m clashlab.colab designer-ar --job dsg-v22ft2 --gpu L4 --fallback-gpu A100 --max-units 4 \
+# --gpu defaults to L4 for every command (run, designer-ar, grid-designer); an A100 only with --gpu A100 or an
+# explicit --fallback-gpu A100, never automatically
+python -m clashlab.colab designer-ar --job dsg-v22ft2 --max-units 2 \
     --init runs/v22_ft1/last.pt --extra extra_v22r2.jsonl --out v22_ft2 --push-back --detach -- --v2 ... (train.py args)
 # grid designer fine-tune; bare paths = data\designer\...
-python -m clashlab.colab grid-designer --job grid15-ft4 --gpu A100 --max-units 3 --init runs/grid15_ft3/final.pt \
+python -m clashlab.colab grid-designer --job grid15-ft4 --max-units 2 --init runs/grid15_ft3/final.pt \
     --extra orbit/extra_r1.npz --out grid15_ft4 --push-back --detach -- --steps 6000 --bs 64 ... (train.py args)
 python -m clashlab.colab status | logs --job X -f | stop --job X | ledger | budget
 ```
@@ -44,14 +46,18 @@ on this server, so the next CPU steps (sampling on AI Server 2) find it where th
 
 What the launcher guarantees:
 - **Budget.** It refuses a job whose estimate exceeds `--max-units`, or that would take the balance under the 20-unit
-  reserve or past 60 units a day. At the cap it pulls the state and stops the VM. Every exit path, including errors
-  and SIGTERM, runs `colab stop`.
+  reserve or past 60 units a day. At the cap it pulls the state and stops the VM. Every exit path, including errors,
+  SIGTERM, SIGHUP and Ctrl-C, runs `colab stop`, and a final `finally` stops a VM still live when the driver exits.
+  Estimates and caps use the measured rate table (L4 1.54, A100 5.3, CPU 0.08 units/h; launcher.DEFAULT_RATES); a
+  measured rate outside 0.5-2x the table is ignored.
 - **No credentials or game binary on the VM.** It ships a minimal code tarball (~0.8 MB, no git clone). Datasets
   and game data exist only on the VM and die with it. `libg.so` stays home: a shim answers the id-map sha check.
 - **Resume.** Resume state is pulled every 10 min. After a Colab disconnect it opens a new VM, re-uploads, and the
   trainer resumes from `last.pt`. The designer_ar time-limit exit (rc 3) reruns on the same VM.
 - **Background.** `--detach` runs the driver under `caffeinate`, so the Mac stays awake.
-  `ops/colab/install_watch.sh` adds a LaunchAgent: every 10 min it resumes dead drivers and releases VMs nobody drives.
+  `ops/colab/install_watch.sh` adds a LaunchAgent: every 5 min it resumes dead drivers and runs `sweep --grace 10`:
+  a finished job's VM is stopped at once, a driverless job's VM after 10 min without a poll (so ~15 min of idle
+  billing at most).
 
 ## Measured (2026-10-10)
 
@@ -60,7 +66,8 @@ What the launcher guarantees:
 | designer_ar v2.2 ft1, 8000 steps (CPU data-worker bound) | 30.8 min | 18 min, 1.85 units | 25 min, **0.67 units** |
 | grid designer grid15_ft3, 6000 steps | 6.2 min | 5.7 min, 0.76 units (val_ce identical to 3 decimals) | - |
 
-Use the **L4 for designer_ar** (cheapest per job) and the A100 for GPU-bound work. Per-job overhead is 2-4 min: VM
+The **L4 is the launcher's default** (cheapest per job, designer jobs are data-worker bound); pass `--gpu A100` only
+for GPU-bound work. Per-job overhead is 2-4 min: VM
 ~10 s, inputs from this server ~2 MB/s on the first use (then cached on the Mac), Mac to VM ~2-7 MB/s, VM to Mac
 ~6 MB/s.
 
