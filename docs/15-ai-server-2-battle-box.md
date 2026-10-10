@@ -60,7 +60,11 @@ C:\AI-Server\scripts\box.cmd submit ... (from AI Server 1, also from SYSTEM queu
 
 `~/AlphaClash-Workspace/X` on the box = `C:\Users\poopl\Development\AlphaClash-Workspace\X` on AI Server 1 (data,
 BaseFinder working copy pushed from the Mac, worktrees `bf_v5` / `ce_v5`). Launchers source
-`ops/strixhalo/jobs/env.sh` (BF_ROOT, ORACLE_SIM_OUT, TORCH_HOME, REG18_DIR). Mirrored so far: BaseFinder models
+`ops/strixhalo/jobs/env.sh` (BF_ROOT, ORACLE_SIM_OUT, TORCH_HOME, REG18_DIR). Since 2026-10-10 BaseFinder is part of
+ClashEngineering: env.sh sets BF_ROOT to `$CE/basefinder` once `~/ClashEngineering` has it (after the next
+`tools/deploy_sync.sh --apply srv2` from the Mac), else to the old, now frozen `~/AlphaClash-Workspace/BaseFinder`.
+`~/ClashEngineering` is deploy-only (it receives origin/main through deploy_sync; experiments use worktrees
+`~/ce_<task>` such as ce_att / ce_dsg22); see ClashEngineering `AGENTS.md`. Mirrored so far: BaseFinder models
 grid18_v5a/b, grid18_v3, level18_v2 (no last.pt / snapshots), reg18/current, oracle_sim, torch_home, gt18, scraped
 sets (pull running); designer_ar dataset_ar1 + runs v2_ft2 / v21_ft1.
 

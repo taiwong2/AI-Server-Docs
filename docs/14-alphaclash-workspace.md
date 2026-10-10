@@ -10,6 +10,31 @@ Where the rebuilt Clash of Clans RL system is developed on this box, and how to 
 The old AlphaClash workspace is archived on Drive (see [Agents and chat](09-agents-and-chat.md)); this is a
 fresh workspace for the **new** system. No training runs here yet: the plan is build → small tests → train.
 
+## One repo and the git workflow (2026-10-10)
+
+**BaseFinder and the old AlphaClash repo are now inside ClashEngineering**, with their git history:
+`ClashEngineering/basefinder/` (BaseFinder main ae72b1d, 69 commits) and `ClashEngineering/legacy/alphaclash/`
+(9.256-era AlphaClash, 6 commits, minus game assets: `www/`, sprites/screenshots, keystore, GeoIP db). Data, models
+and runs stay outside git as before (`AlphaClash-Workspace\data\basefinder`, `$REG18_DIR`).
+
+- **Paths.** CE code finds BaseFinder through `clashlab/bf_root.py`: `$BF_ROOT`, else `<checkout>\basefinder`, else the
+  old `AlphaClash-Workspace\BaseFinder`. `ops/aiserver/basedesigner.ps1` / `league_direct.ps1` (and AI Server 2's
+  `ops/strixhalo/jobs/env.sh`) pick `<ce>\basefinder` when that checkout has it, else the old copy, so nothing
+  changes for a deploy copy until it is synced, and the code is the same either way. BaseFinder scripts run from
+  `<ce>\basefinder` exactly as from the old repo root (`cd ...\ClashEngineering\basefinder; python scripts\bf18_job.py ...`).
+- **The old checkouts are frozen** at ae72b1d (`AlphaClash-Workspace\BaseFinder`, `bf_v5`, `bf_v4train`,
+  `AlphaClash`; on AI Server 2 `~/AlphaClash-Workspace/BaseFinder`). They stay only so queued and running jobs that
+  reference them finish; new BaseFinder commits go to `ClashEngineering/basefinder/`.
+- **Deploy copies.** `AlphaClash-Workspace\ClashEngineering` here and `~/ClashEngineering` on AI Server 2 are
+  deploy-only: they receive `origin/main` from the Mac with `tools/deploy_sync.sh --apply` (an updateInstead push;
+  refused when the copy is dirty, has diverged, or the server has running jobs unless `--busy-ok`). Never edit them
+  by hand; experiments run from their own checkout/worktree (`ce_att`, `ce_*`, AI Server 2 `~/ce_<task>`).
+  As of 2026-10-10 06:30 UTC this box's copy had 19 locally modified designer files (mostly LF/CRLF noise from
+  `core.autocrlf=true`, one real edit), so `deploy_sync` skips it until that is resolved.
+- **Agents** follow `ClashEngineering/AGENTS.md`: a worktree per task (`tools/agent_worktree.sh <task>` ->
+  `../ce-wt/<task>`, branch `agent/<task>`), small `area: what` commits, merges only through
+  `tools/agent_merge.sh` (lock, rebase on origin/main, fast tests, fast-forward push, log in `.git/agent-merge.log`).
+
 ## Layout
 
 ```
@@ -18,7 +43,8 @@ C:\Users\poopl\Development\AlphaClash-Workspace\
                       + artifacts\ (recovered engine, decoded game data), extracted\ (APK assets), the 18.600 APK
                       .venv\  Python 3.12 venv: unicorn, capstone, pyelftools, numpy, Pillow, imageio
   AlphaClash\         9.256 C# server/simulator (branch archive-sync-20261003) with the battlescope trace recorder,
-                      Python RL code (new agent is built from scratch; old code kept for reference)
+                      Python RL code (new agent is built from scratch; old code kept for reference). Frozen: the code
+                      is in ClashEngineering\legacy\alphaclash since 2026-10-10 (game assets only here)
 ```
 
 Nothing from the Drive archive is restored by default. `AlphaClash\ops\restore_from_archive.py --plan` lists a
