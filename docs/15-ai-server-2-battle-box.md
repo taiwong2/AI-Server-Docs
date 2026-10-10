@@ -79,18 +79,29 @@ same). So: compute on the box, push results; a 40 GB synthetic set takes about 5
 
 ### ClashLab site: main copy here
 
-- `~/clashlab-www`, served on :8787 by `clashlab-serve.service` (http://ai-server-2:8787,
-  http://100.65.60.112:8787). Built every 10 min by `clashlab-update.timer` from the runs root `~/ClashRuns`
+- **URL: https://ai-server-2.tail215694.ts.net/** (tailnet-only HTTPS: `sudo tailscale serve --bg 8787`, persistent
+  across reboots; `tailscale serve status`). Also http://ai-server-2:8787 and http://100.65.60.112:8787. Video seeking
+  (HTTP Range, 206) works through serve.
+- `~/clashlab-www`, served on :8787 by `clashlab-serve.service`. Built every 10 min by `clashlab-update.timer` from the runs root `~/ClashRuns`
   (holds every Mac run too, plus `clashlab_site.json` with the pins and the 18 archived runs) and published
   locally (`CLASHLAB_PUBLISH_HOST=local`: media hard-linked, text copied).
 - `python -m clashlab publish` defaults to `ai-server-2:~/clashlab-www`. Runs made on the Mac:
   `ops/strixhalo/push_runs.sh`.
-- AI Server 1's `AlphaClash-Dashboard` task runs `C:\AI-Server\tools\alphaclash-dash\redirect.cmd` ->
-  `clashlab_redirect.py`: HTML paths get a "moved" page with both links and a 2 s redirect, other paths a 302, both
-  to the same path on the box. While the legacy tree (`recordings/`, `legacy.html`, `_logs/`) is still being
-  copied it is served in place (`--keep-local`); the clashjob `legacy_redirect_done.sh` (queued `--after` the copy)
-  drops those flags. Rollback: point the task back at `range_server.py`; the files in `C:\AI-Server\www\alphaclash`
-  are untouched.
+- AI Server 1's `AlphaClash-Dashboard` task runs `C:\AI-Server\tools\alphaclash-dash\clashlab_redirect.py`
+  (switched 2026-10-10 with `set_dashboard_task.ps1` there: `Set-ScheduledTask`, because `schtasks /change` asks
+  for poopl's password). HTML paths get a "moved" page with the three links and a 2 s redirect to the HTTPS URL;
+  other paths a 302 to the same path there. While the legacy tree (`recordings/` 18 GB, `legacy.html`, `_logs/`) is
+  still being copied it is served in place (`--keep-local`); the clashjob `legacy_redirect_done.sh` (queued
+  `--after` the copy) re-runs `set_dashboard_task.ps1 -All`. Rollback: import
+  `AlphaClash-Dashboard.range_server.backup.xml` (same folder); the files in `C:\AI-Server\www\alphaclash` are
+  untouched.
+- `clashlab update` records at most `--max-total` 12 videos per pass and only for runs with replays newer than
+  `--recent-days` 2 that are not archived, and never re-records a video the site already has. Without that, the
+  33 runs synced from the Mac (their media live only in the site) were being recorded again for hours, which also
+  kept the box from sleeping.
+- **While the box sleeps (ai-power, [docs/16](16-ai-server-2-wake-and-power.md)) the site is unreachable** until
+  the 20-minute RTC heartbeat or a wake. Serving does not keep it awake by itself: `tailscaled` / `clashlab serve`
+  are not busy processes, only the network gate (> 1.5 Mbit/s for a minute, i.e. someone watching videos) counts.
 
 ### ClashLink hub stays on AI Server 1
 
@@ -115,6 +126,20 @@ inactive); Tailscale is the boundary.
   `bootstrap.sh`), the reg18 model dir (`REG18_DIR`), and a ClashEngineering checkout with `artifacts/` for
   render-and-compare (the `ce_v5` worktree links the main checkout's untracked artifacts).
 
+### Verified end to end (2026-10-10)
+
+| check | result |
+|---|---|
+| designer sampling on the box (clashjob, `designer_ar_sample.sh`, dsg-orbit `v2_ft2/last.pt`, TH12-18, n=3, 24 draws, 8 CPUs) | 21 valid layouts in 5.5 min (11.3 s per draw); same seed gives the same rejections as before |
+| BaseFinder parse of 20 scraped screenshots on CPU (`bf_v5` = 5af44fa, `ce_v5` = e90fa35, the server's models) vs AI Server 1's parsed18_v5 | same status 20/20, 99.87 % of objects identical (type + cell), levels equal on 99.35 % of shared objects, 4/20 layouts bit-identical (the rest differ by CPU vs CUDA float noise); 1.9 s per screenshot (server 2.3 s), 71 s wall incl. model load on 8 CPUs |
+| GPU fine-tune from the box (`gpujob.py` in a clashjob -> AI Server 1 lane `designer_ar`, v2_train 300 steps) | push 45 files 15 s, queued -> running in 21 s, gpulease GPU 0 8000 MB (by `TPC2$`), 1.4 min training, checkpoint (139 MB) pulled back in 80 s; the box then sampled 4 valid TH15-16 layouts from it |
+| ClashLab | box builds + publishes locally (32 runs, pins + 18 archived carried over), Mac -> box ssh publish (4,050 files, 983 MB in 11 min over the Wi-Fi LAN), HTTPS URL serves pages, media and Range (206); AI Server 1's :8787 serves the "moved" page / 302 to the same path |
+| forge eval on the box (Mac `onbox.sh`, 2 box-sampled TH12 layouts, 2 seeds, 8 workers) | 32 battles in 2 s (~20/s); PBS judge (budgets 16,32) also runs |
+| synthetic rendering + streaming push (`basefinder_synth.sh STREAM=1`, 1,200 images, 10 workers) | 3.4 min (5.9 images/s), 860 MB pushed to AI Server 1 complete (2,404 files); push 2.3 MB/s while the www pulls shared the Wi-Fi |
+| AI Server 1 -> box submit (`box.cmd`) | works from poopl's shell and from a SYSTEM queue job; other commands are refused by the forced command |
+| league `designer.cpu_on_box` (dsg1 config, tiny propose) | mirror pull + local propose run; propose then fails on the designer's known 0-valid / `np.stack([])` problem, exactly as it does on AI Server 1 |
+| reboot safety | after the 2026-10-10 shutdown `clash-jobs`, `clashlab-serve`, `clashlab-update.timer` came back by themselves; jobs killed by the shutdown are recorded as failed (exit -15) and wsync jobs are simply resubmitted (resumable) |
+
 ## What is where on the box
 
 | | |
@@ -132,8 +157,9 @@ inactive); Tailscale is the boundary.
 
 | unit | state | what |
 |---|---|---|
-| `clashlab-update.timer` | enabled, running | Every 10 min: record sampled battles, rebuild the site, publish to `C:\AI-Server\www\alphaclash` (:8787). |
-| `clashlab-serve.service` | enabled, running, `Restart=always` | Serves the box's own copy of the site on `:8787`. |
+| `clashlab-update.timer` | enabled, running | Every 10 min: record sampled battles, rebuild the site, publish it locally to the main copy `~/clashlab-www`. |
+| `clashlab-serve.service` | enabled, running, `Restart=always` | Serves the main copy `~/clashlab-www` on `:8787` (behind `tailscale serve` HTTPS). |
+| `clash-jobs.service` | enabled, running, `Restart=always` | The CPU job runner (clashjobs). |
 | `clashlab-league@.service` | installed, **not enabled, stopped** | `clashlab.league cycle %i --gens 1000`, `Restart=always`. |
 
 Each unit runs `ops/strixhalo/preflight.sh --quick` as `ExecCondition`. If a dependency is missing, the run is

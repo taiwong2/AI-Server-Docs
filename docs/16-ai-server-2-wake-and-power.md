@@ -128,3 +128,12 @@ it for the suspend, and a 180 s suspend did not reset the box. Whether a real ha
   settings decide whether the wired NIC can wake it, and they may be why Wake-on-WLAN does not.
 - **Wake on the LAN today:** none works, so a submit can wait up to 20 min for the heartbeat. To make the box stay up,
   run `sudo ai-power disable` (or set `heartbeat_minutes` lower).
+
+## The ClashLab site and sleep (2026-10-10)
+
+The ClashLab site's main copy is on this box (https://ai-server-2.tail215694.ts.net/, `tailscale serve` -> :8787).
+While the box is suspended the site does not answer; AI Server 1's :8787 redirect still points here. Serving keeps
+nothing awake on its own (`tailscaled` and `clashlab serve` are not in `busy_processes`, :443/:8787 are not
+`busy_ports`); only real viewing traffic over the network gate (> `net_busy_kbps` 1500 for ~1 min) does. The site
+rebuild (`clashlab-update.service`) is a defer unit, and its recorder now stops at 12 videos per pass for recent
+runs only, so it no longer pins the box awake.

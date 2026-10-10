@@ -5,7 +5,8 @@ Where the rebuilt Clash of Clans RL system is developed on this box, and how to 
 > **Since 2026-10-10 this box does only the GPU training of this system.** Every CPU stage below (parsing,
 > synthetic rendering, sampling, propose, scrapers, forge, the site build and the :8787 site) moved to AI Server 2;
 > the sections below describe how things ran here before and stay as history. Current setup, runner, data mirror
-> and measured transfer speeds: [AI Server 2](15-ai-server-2-battle-box.md).
+> and measured transfer speeds: [AI Server 2](15-ai-server-2-battle-box.md). ClashLab site:
+> https://ai-server-2.tail215694.ts.net/ (the old http://100.71.113.77:8787/ redirects there).
 The old AlphaClash workspace is archived on Drive (see [Agents and chat](09-agents-and-chat.md)); this is a
 fresh workspace for the **new** system. No training runs here yet: the plan is build → small tests → train.
 
