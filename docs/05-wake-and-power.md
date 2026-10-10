@@ -1,5 +1,8 @@
 # Wake and power
 
+> This page is AI Server 1 (Windows). AI Server 2 (the Clash battle box, Linux) has its own sleep daemon:
+> [AI Server 2 wake and power](16-ai-server-2-wake-and-power.md).
+
 The machine sleeps when nobody needs it and wakes when there is work. This page
 is how that works and how to wake it yourself.
 

@@ -47,7 +47,8 @@ and uploads only its additive files (per-run pages, media). `--force` overrides 
 
 | | |
 |---|---|
-| Hardware watchdog | `sp5100_tco` (`/dev/watchdog0`, "SP5100 TCO timer"). Ubuntu blacklists it, so `/etc/modules-load.d/90-watchdog.conf` loads it by name. systemd (PID 1) holds the device: `RuntimeWatchdogSec=2min`, `RebootWatchdogSec=5min` (`/etc/systemd/system.conf.d/90-watchdog.conf`). Check with `sudo wdctl`. Whether a real hang actually reboots the box has **not** been tested. |
+| Hardware watchdog | `sp5100_tco` (`/dev/watchdog0`, "SP5100 TCO timer"). Ubuntu blacklists it and systemd-modules-load honours the blacklist, so `/etc/modules-load.d/90-watchdog.conf` alone never loaded it (fixed 2026-10-09: `ai-server-2-watchdog.service` runs `modprobe` and makes PID 1 open it). systemd (PID 1) holds the device: `RuntimeWatchdogSec=2min`, `RebootWatchdogSec=5min` (`/etc/systemd/system.conf.d/90-watchdog.conf`). Check with `cat /sys/class/watchdog/watchdog0/state` (`active`). Paused during suspend by the sleep hook. Whether a real hang actually reboots the box has **not** been tested. |
+| Sleep | **Not 24/7 any more** (2026-10-09): `ai-power` suspends it when idle for 10 min and wakes it by RTC (20-min heartbeat, `clashjobs submit --at` jobs). `ai-power status` / `sudo ai-power disable`. See [AI Server 2 wake and power](16-ai-server-2-wake-and-power.md). |
 | Kernel panic | `kernel.panic=10`, `kernel.panic_on_oops=1` (`/etc/sysctl.d/90-ai-server-2.conf`) |
 | Updates | unattended-upgrades for security pockets only, **never reboots**: `/etc/apt/apt.conf.d/52unattended-upgrades-noreboot` |
 | Power loss | Set it in the BIOS by hand: *Restore on AC power loss = Power On*. It cannot be set from Linux. |
