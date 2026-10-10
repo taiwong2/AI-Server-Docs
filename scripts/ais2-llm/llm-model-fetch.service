@@ -1,0 +1,20 @@
+[Unit]
+Description=Fetch + sha256-verify Qwen3.8-Flash-Next abliterated weights for llm-gufo (no-op once verified)
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=!/srv/llm/models/.verified-qwen38-flash-next-abliterated
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+User=taiwong
+Group=taiwong
+Nice=5
+ExecStart=/srv/llm/fetch-model.sh
+ExecStartPost=+/bin/sh -c "systemctl is-enabled -q llm.target && systemctl --no-block restart llm-gufo.service || true"
+Restart=on-failure
+RestartSec=60
+TimeoutStartSec=infinity
+
+[Install]
+WantedBy=multi-user.target

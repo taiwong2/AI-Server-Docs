@@ -5,6 +5,10 @@ A second large local model alongside `qwen3.8-27b-uncensored`. This one is the
 ~6B active per token (MoE, 512 experts / ~10 active), plus a 51B n-gram/PLE
 embedding table and a built-in MTP head. It is a **thinking model with vision**.
 
+> **Also on AI Server 2 (Strix Halo), 2026-10-10:** the same abliterated weights on the gufo engine, full 262k + MTP,
+> 42.9 tok/s idle and much faster long-context prefill, no GPU lease. Currently switched off (battle box priority).
+> DSH's `flash-next` entry prefers it when on. See [docs/17](17-ai-server-2-llm.md).
+
 ## What it is
 
 | | |

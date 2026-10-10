@@ -19,7 +19,7 @@ has been idle continuously for `grace_minutes` (**10**):
 | ssh | an ssh session with a tty and input in the last `input_idle_minutes` (**15**), or an ssh command (no tty, which is how agents work) running now or in the last 15 min. Read-only polls (`clashjobs list/status/show/log`, `ai-power status`) do not count. |
 | detached | processes left behind by a closed ssh session (tmux, nohup) other than idle shells |
 | console | a local tty login with input in the last 15 min |
-| llm | `llm-gufo.service` is running and had a connection on :8080 or wrote a log line in the last `llm_idle_minutes` (**15**), or started less than 15 min ago |
+| llm | (LLM off since 2026-10-10, [docs/17](17-ai-server-2-llm.md); switch: `llm.target`) `llm-gufo.service` is running and had a connection on :8080 or wrote a log line in the last `llm_idle_minutes` (**15**), or started less than 15 min ago |
 | ports | something listening on a `busy_ports` entry (none by default) |
 | cpu | whole-box CPU above 12 % (1-minute average): catches work nobody tagged |
 | network | NIC traffic above 1.5 Mbit/s (1-minute average): catches big transfers |

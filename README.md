@@ -47,6 +47,7 @@ live on **AI Server 2** — see [AI Server 2](docs/15-ai-server-2-battle-box.md)
 | Work on the box as a developer (Antoine), or manage developer access | [Developers](docs/12-developers.md) |
 | Install the DeepSeek Harness on another device | [DeepSeek Harness setup](docs/10-dsh-setup.md) |
 | Write a story, poem or lyrics with Gemma 4 | [Creative writing](docs/11-creative-writing.md) |
+| Use the Flash-Next LLM on AI Server 2 (Strix Halo, gufo), or turn it on/off | [AI Server 2 (Strix Halo) LLM](docs/17-ai-server-2-llm.md) |
 | Use AI Server 2 (the Clash battle box: engine, league battle workers) | [AI Server 2 battle box](docs/15-ai-server-2-battle-box.md) |
 | Wake AI Server 2, see why it is (not) asleep, keep it awake | [AI Server 2 wake and power](docs/16-ai-server-2-wake-and-power.md) |
 

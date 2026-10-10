@@ -1,0 +1,6 @@
+[Unit]
+Description=AI Server 2 LLM (gufo Flash-Next). On/off switch: sudo systemctl enable --now llm.target / sudo systemctl disable --now llm.target
+Wants=llm-gufo.service
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,49 @@
+# AI Server 2 LLM: gufo (Strix Halo HIP engine) serving the abliterated Qwen3.8-Flash-Next
+# OpenAI/Anthropic-compatible API on 0.0.0.0:8080, model id qwen3.8-flash-next-uncensored.
+# API key: /etc/ai-server-2/llm.env (LLM_API_KEY=...). Docs: AI-Server-Docs "AI Server 2 (Strix Halo)".
+[Unit]
+Description=LLM server: gufo + Qwen3.8-Flash-Next abliterated (port 8080)
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=0
+# started/stopped with llm.target (the boot switch; generated units cannot be enabled directly)
+PartOf=llm.target
+# never serve until llm-model-fetch.service has sha256-verified every shard
+ConditionPathExists=/srv/llm/models/.verified-qwen38-flash-next-abliterated
+
+[Container]
+ContainerName=llm-gufo
+Image=ghcr.io/gufo-org/toolboxes/gufo-runtime:0.10.0
+Pull=missing
+Network=host
+AddDevice=/dev/kfd
+AddDevice=/dev/dri
+# host render (991) and video (44) groups: the image runs as uid 1000 "gufo"
+GroupAdd=991
+GroupAdd=44
+Ulimit=memlock=-1:-1
+Volume=/srv/llm/models:/models:ro
+EnvironmentFile=/etc/ai-server-2/llm.env
+RunInit=true
+StopTimeout=80
+# 2 physical cores (4 threads) on CCD1; the battle simulation gets the other 14 cores
+PodmanArgs=--cpuset-cpus=14,15,30,31 --oom-score-adj=-900
+Exec=sh -c "exec gufo serve --host 0.0.0.0 --port 8080 --sessions 1 --api-key \"$$LLM_API_KEY\" llm \
+  --model /models/huihui-ai/Huihui-Qwen3.8-Flash-Next-abliterated-GGUF/UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00001-of-00004.gguf \
+  --served-model-name qwen3.8-flash-next-uncensored \
+  --context 262144 \
+  --speculative mtp --mtp-model /models/unsloth/Qwen3.8-Flash-Next-GGUF/MTP/mtp-Qwen3.8-Flash-Next-shared-Q8_0.gguf \
+  --cache-ram-bytes 4294967296"
+
+[Service]
+# a battle job is OOM-killed before the model (GPU memory is not in RSS; this covers the host-side process)
+OOMScoreAdjust=-900
+Slice=llm.slice
+ExecStartPre=/srv/llm/memcheck.sh
+Restart=always
+RestartSec=20
+TimeoutStartSec=900
+TimeoutStopSec=90
+
+[Install]
+WantedBy=llm.target

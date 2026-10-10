@@ -1,0 +1,8 @@
+[Unit]
+Description=LLM inference slice (lower CPU/IO priority than the battle simulation)
+Before=slices.target
+
+[Slice]
+CPUWeight=20
+IOWeight=20
+MemoryLow=2G

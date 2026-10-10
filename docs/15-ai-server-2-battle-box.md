@@ -3,8 +3,9 @@
 AI Server 2 is the second machine on the tailnet. It runs the CPU side of the Clash of Clans system: the exact 18.600
 battle engine (x86_64 build, native runner), the league's battle workers, the ClashLink client and the ClashLab site
 builder. The GPU side (designer proposals and fine-tunes, the attacker's PPO learner) stays on this handbook's AI
-server and is reached through ClashLink and the job queue. The same box also runs an LLM server (podman, llama.cpp on
-:8080). That server is documented separately; nothing here touches it.
+server and is reached through ClashLink and the job queue. The same box can also run an LLM server (gufo + Flash-Next on
+:8080, ~91 GiB when loaded). It is **off** since 2026-10-10 so the simulator gets the whole box; see
+[docs/17](17-ai-server-2-llm.md). Never load it while training runs (it OOM-killed att-ppo-f once).
 
 | | |
 |---|---|

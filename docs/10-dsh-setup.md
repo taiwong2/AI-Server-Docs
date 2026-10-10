@@ -1,5 +1,11 @@
 # DeepSeek Harness setup
 
+> **Main entry: `flash-next` (2026-10-10).** On the Mac DSH install (`~/Documents/deepseek-harness`) the default
+> model is `flash-next`, served by the Mac proxy `dsh-mac-proxy.mjs` on `127.0.0.1:1235`. It goes to **AI Server 2's
+> Flash-Next** (Strix Halo, gufo, 262k, MTP) when that LLM is on, and otherwise to **AI Server 1's**
+> `qwen3.8-flash-next-uncensored` (the fallback, and the current default while AI Server 2's LLM is off). See
+> [Mac client: AI Server 2 main entry](#mac-client-ai-server-2-main-entry) below and [docs/17](17-ai-server-2-llm.md).
+
 This guide reproduces the working native llama.cpp setup for the DeepSeek
 Harness (`dsh`) on a new Windows client talking to a separate Windows AI
 server. It deliberately keeps credentials, API keys, and machine-specific
@@ -399,3 +405,55 @@ this GPU host.
 
 For multi-GPU tuning background, see the [llama.cpp multi-GPU guide](https://github.com/ggml-org/llama.cpp/blob/master/docs/multi-gpu.md)
 and [dual-3090 Qwen reports](https://www.reddit.com/r/LocalLLM/comments/1voyohk/qwen3827b_single_vs_multigpu_benchmarks/).
+
+## Mac client: AI Server 2 main entry
+
+Added 2026-10-10. The Windows workstation client described above (`C:\Users\Tai\.dsh`, node `tpc`) was not
+reachable for this change: no ssh or other open port on the tailnet. It still uses the AI Server 1-only proxy. The Mac
+DSH install now has its own proxy.
+
+| | |
+|---|---|
+| Proxy | `~/Documents/deepseek-harness/bin/dsh-mac-proxy.mjs` (source: [`scripts/dsh-mac-proxy.mjs`](../scripts/dsh-mac-proxy.mjs)), Node 22, no dependencies |
+| Service | LaunchAgent `~/Library/LaunchAgents/com.tai.dsh-mac-proxy.plist` (`RunAtLoad`, `KeepAlive`); log `~/Library/Logs/dsh-mac-proxy.log` |
+| Listens | `127.0.0.1:1235` (Mac only, no auth). DSH provider `tai-ai-server` -> `http://127.0.0.1:1235/v1` |
+| DSH config | `home/cordis.patch.yml`: models `flash-next` (default), `qwen3.8-flash-next-uncensored-strix`, then AI Server 1's ids. Backup `cordis.patch.yml.bak-20261010` |
+| Keys (never in a repo) | `~/.config/ai-server-2/llm_api_key` (AI Server 2, same as `/etc/ai-server-2/llm.env`) and `~/.config/ai-server/model_proxy_api_key` (a dedicated line in AI Server 1's `C:\AI-Server\scripts\.api-key`; backup `.api-key.bak-20261010-macdsh`; delete that line to revoke) |
+
+Routing:
+
+| model id | goes to |
+|---|---|
+| `flash-next` (default) | AI Server 2 `http://100.65.60.112:8080` if its `/health` answers; otherwise AI Server 1 `http://100.71.113.77:1235` as `qwen3.8-flash-next-uncensored`. If AI Server 2 is asleep and its LLM was serving within the last 2 days, it also starts `wake-ai-server-2` in the background for next time |
+| `qwen3.8-flash-next-uncensored-strix` | AI Server 2 only (on demand): wakes the box if needed, waits up to 2 min for the model; when the LLM is off it returns 503 "AI Server 2 LLM is off. Turn it on: ssh ai-server-2 sudo systemctl enable --now llm.target" |
+| anything else | AI Server 1's model proxy, which starts/switches its native host and takes its GPU leases itself. If AI Server 1 does not answer, the proxy calls the wake relay (`https://wake-relay.tail215694.ts.net/wake`) and waits up to 5 min |
+
+AI Server 2 needs **no GPU lease** (one GPU, one model). Keep-awake: for 30 min after the last request to AI Server 2
+the proxy polls its `/health` every 5 min. AI Server 2's power daemon counts any `:8080` connection in the last
+15 min as LLM activity ([docs/16](16-ai-server-2-wake-and-power.md)), so the box stays up while DSH uses it. Waking
+is slow today: Wi-Fi wake does not work, so a sleeping box answers on its RTC heartbeat (<= 20 min).
+
+Verified 2026-10-10 from the Mac:
+
+- `GET 127.0.0.1:1235/v1/models` lists `flash-next`, `qwen3.8-flash-next-uncensored-strix` and AI Server 1's models.
+- The `-strix` route with the LLM off returns the 503 above.
+- Directly against AI Server 2 while it was serving: models, chat, uncensored check, and streaming (SSE chunks) all
+  worked over the tailnet.
+- `flash-next` -> AI Server 1 fallback reached AI Server 1's proxy (auth OK). The request then **timed out after
+  5 min**: AI Server 1's native Flash-Next host needs both 3090s, and GPU 1 was held by the `clashlearner` lease
+  (the attacker PPO learner). While AI Server 1 is training, its Flash-Next cannot load. Use AI Server 2
+  (`enable --now llm.target`, with the battle jobs stopped), or wait for the learner to finish.
+- Not yet run end to end through the proxy with AI Server 2 on: it was switched off before the proxy existed.
+  First time it is on, check:
+  `curl -s localhost:1235/v1/chat/completions -H 'Content-Type: application/json' -d '{"model":"flash-next","messages":[{"role":"user","content":"hi"}],"stream":true}'`
+  and look for `-> ais2` in the log.
+
+```bash
+launchctl kickstart -k gui/$(id -u)/com.tai.dsh-mac-proxy    # restart after editing the .mjs
+tail -f ~/Library/Logs/dsh-mac-proxy.log
+curl -s localhost:1235/health                                # {"status":"ok","ais2_llm":true|false}
+```
+
+To give the Windows client the same main entry, add the same three routes to its `dsh-model-proxy.mjs`:
+`flash-next` -> AI Server 2 :8080 with the bearer key (stored in that client's DSH credential store), falling back to
+the existing native route. Do not take GPU leases for AI Server 2.
