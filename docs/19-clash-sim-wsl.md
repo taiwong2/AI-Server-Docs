@@ -47,3 +47,10 @@ Hyper-V firewall also blocks inbound. Unix sockets work, and so does Windows int
 
 While it trains, the learner job holds a gpulease, which blocks sleep (docs/05). After `clash-sim.stop` the learner
 idle-exits within 20 min and the box may sleep again; the S4U task does not wake the box by itself.
+
+### WSL memory cap raised (2026-10-10)
+`%USERPROFILE%\.wslconfig` now `memory=56GB`, `processors=24`, `swap=0` (was 16 GB, set 2026-09-01 after Docker
+Desktop starved training). Raised so clash-sim can carry the attacker / CA-4 simulation and free AI Server 2 for
+the LLM. Applying it needed `wsl --shutdown`, which restarts every distro (pp-antoine comes back via
+`\AI-AntoineEnv`). Backup: `.wslconfig.bak-20261010`. Leaves ~37 GB + 8 threads for Windows, the GPU learners and
+the job queue.
