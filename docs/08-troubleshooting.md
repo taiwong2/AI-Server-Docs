@@ -265,3 +265,11 @@ listener inside the same distro, fails with "Connection refused"; DNS via the ge
 change `.wslconfig` (needs `wsl --shutdown`, stops pp-antoine). Use Unix sockets + Windows interop relays
 (docs/19-clash-sim-wsl.md) and a static resolv.conf. Also: `wsl.exe` refuses to run as SYSTEM
 (WSL_E_LOCAL_SYSTEM_NOT_SUPPORTED), so start WSL work from an S4U scheduled task, not a job-queue job.
+
+## New ssh logins reset during key exchange ("kex_exchange_identification: Connection reset")
+
+Seen 2026-10-10: Windows OpenSSH had left ~512 hung session processes (`sshd.exe -R`, no TCP socket left), and
+sshd refused every new connection while already-open (multiplexed) sessions kept working. `ClientAliveInterval`
+was already set, so keepalives don't catch these. Fix: the hourly scheduled task **AI-SshdReap**
+(`C:\AI-Server\scripts\sshd-reap.ps1`, SYSTEM) stops sshd session processes older than 2 h that own no TCP
+connection; log in `C:\AI-Server\logs\sshd-reap.log`. Check with `(Get-Process sshd).Count` (normal: a handful).
