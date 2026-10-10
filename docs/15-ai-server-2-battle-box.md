@@ -1,4 +1,4 @@
-# AI Server 2: ClashEngineering battle box (2026-10-09)
+# AI Server 2: the Clash CPU box (battle box since 2026-10-09; all Clash CPU work since 2026-10-10)
 
 AI Server 2 is the second machine on the tailnet. It runs the CPU side of the Clash of Clans system: the exact 18.600
 battle engine (x86_64 build, native runner), the league's battle workers, the ClashLink client and the ClashLab site
@@ -13,6 +13,107 @@ server and is reached through ClashLink and the job queue. The same box also run
 | Reach it | `ssh ai-server-2` from the Mac (`HostName ai-server-2`, user `taiwong`, key `~/.ssh/ai-server-2`); tailnet `100.65.60.112`, LAN `192.168.10.9` (Wi-Fi) |
 | Sudo | `taiwong` has passwordless sudo |
 | Runbook (source of truth) | ClashEngineering `ops/strixhalo/README.md`: `push_from_mac.sh`, `bootstrap.sh`, `preflight.sh` |
+
+## The split (since 2026-10-10): AI Server 1 trains, AI Server 2 does every Clash CPU job
+
+The user's decision: AI Server 1 (this handbook's machine, 2x RTX 3090) does **only GPU training**. Every Clash CPU
+workload moved here. Work that was already running finished where it was (BaseFinder v5 parse lanes `bf5p*`,
+designer lanes `designer_gen*`, `designer_ar*`).
+
+| workload | was | now |
+|---|---|---|
+| league panel / holdout battles, forge, PBS judge, `clashlab attack` / `record` | Mac (HVF) and this box | AI Server 2 (`clashjobs`; from the Mac `ops/strixhalo/onbox.sh -- CMD`) |
+| designer sampling (`clashlab.designer.sample`, `clashlab.designer_ar.sample`, orbit_gen), propose, ftdata, dataset builds, realism / reports | AI Server 1 queue (lanes designer*, `basedesigner` Cmd=sample/improve) | AI Server 2 (`ops/strixhalo/jobs/designer_ar_sample.sh`, league `designer.cpu_on_box`) |
+| designer / designer_ar training and fine-tunes | AI Server 1 | AI Server 1 (unchanged; from the box with `gpujob.py`, checkpoint pulled back) |
+| BaseFinder parsing (`parse_scraped18`, render-and-compare) | AI Server 1 (`bf18_job.py parse`, GPU lease for the FCN) | AI Server 2 on CPU (`jobs/basefinder_parse.sh`) |
+| BaseFinder synthetic rendering | AI Server 1 (`basefinder_synth` kind) | AI Server 2 (`jobs/basefinder_synth.sh`, `STREAM=1` pushes shards to AI Server 1 while rendering) |
+| BaseFinder grid / level / reg18 training | AI Server 1 | AI Server 1 (unchanged) |
+| scrapers (scrape2) | AI Server 1 (`run_scrape2.ps1`) | AI Server 2 (`jobs/scrape.sh`; polite 1.5 s, robots.txt, no Cloudflare evasion, never Supercell servers) |
+| ClashLab site build, base-image renders (`bases render-pack`), serving :8787 | Mac + box build, AI Server 1 serves | AI Server 2 builds and serves (main copy `~/clashlab-www`); AI Server 1's :8787 redirects |
+| ClashLink hub | AI Server 1 | AI Server 1 (unchanged, see below) |
+| PPO learner | AI Server 1 | AI Server 1 (unchanged) |
+
+ClashEngineering `ops/README.md` is the short version for agents (rules + commands).
+
+### clashjobs: the CPU job runner
+
+`ops/strixhalo/clashjobs.py` (stdlib), runner = systemd user unit `clash-jobs.service` (`Restart=always`, enabled,
+starts at boot through linger; verified after the 2026-10-10 shutdown). Each job is its own transient unit
+`clashjob-<id>` (systemd-run), so jobs survive runner restarts; the exit code is written by the job's wrapper.
+
+```
+ssh ai-server-2 clashjobs submit --lane L --cpus N --mem-gb G [--timeout-min M] [--after ID] [--env K=V] [--wait] -- COMMAND ...
+ssh ai-server-2 clashjobs list | log ID [-f] | wait ID | cancel ID | show ID | status
+C:\AI-Server\scripts\box.cmd submit ... (from AI Server 1, also from SYSTEM queue jobs)
+```
+
+- One job per lane; at most `max_running` (8) jobs; a job starts only while the running jobs' `--cpus` fit in
+  `cpu_budget` = 28 of the 32 threads (the LLM keeps 2-4) and MemAvailable stays >= `--mem-gb` + 16 GB (so the LLM
+  can load). `--cpus` is also a hard `CPUQuota`. Config: `~/clash-jobs/config.json`.
+- Default environment: cwd `~/ClashEngineering`, its venv first on PATH, `PYTHONPATH=repo:repo/tools`.
+- State and logs: `~/clash-jobs/{queue,done,failed,logs}`. Jobs killed by a shutdown show as failed with exit -15.
+- AI Server 1's key (`C:\AI-Server\state\ssh\ai-server-2_ed25519`, ACL SYSTEM + Administrators only, or Windows
+  OpenSSH refuses it under SYSTEM) is authorized on the box with `from="100.71.113.77"` and the forced command
+  `/usr/local/bin/clashjobs-ssh`: it can run `clashjobs` and nothing else.
+
+### Data: a mirror of AI Server 1's workspace, wsync and gpujob
+
+`~/AlphaClash-Workspace/X` on the box = `C:\Users\poopl\Development\AlphaClash-Workspace\X` on AI Server 1 (data,
+BaseFinder working copy pushed from the Mac, worktrees `bf_v5` / `ce_v5`). Launchers source
+`ops/strixhalo/jobs/env.sh` (BF_ROOT, ORACLE_SIM_OUT, TORCH_HOME, REG18_DIR). Mirrored so far: BaseFinder models
+grid18_v5a/b, grid18_v3, level18_v2 (no last.pt / snapshots), reg18/current, oracle_sim, torch_home, gt18, scraped
+sets (pull running); designer_ar dataset_ar1 + runs v2_ft2 / v21_ft1.
+
+- `ops/strixhalo/wsync.py pull|push SRC DST`: AI Server 1 has no rsync. It compares (path, size, mtime) lists and
+  moves only missing / changed files as tar-over-ssh chunks, with retries (the WAN resets connections). Nothing is
+  deleted. `--settle/--watch/--until-file` stream a growing directory.
+- `ops/strixhalo/gpujob.py submit --lane L --push LOCAL::REMOTE --pull REMOTE::LOCAL --wait -- "<PowerShell>"`:
+  inputs up, `jobqueue.submit(kind=shell)` here, poll, checkpoint back. The command must take its own gpulease.
+
+**Measured (2026-10-10, tailnet, two sites):** AI Server 1 -> box about **2-4.6 MB/s in total**, whatever the number
+of streams or protocol (16 parallel HTTP downloads = 2.0 MB/s, 6 ssh connections = 2.2 MB/s, a later 12-stream
+HTTP test 4.6 MB/s): AI Server 1's uplink is the limit. Box -> AI Server 1 about **13.5 MB/s** (1 and 6 streams the
+same). So: compute on the box, push results; a 40 GB synthetic set takes about 50 min to push, and
+`basefinder_synth.sh STREAM=1` overlaps it with rendering. The 24 GB dashboard copy (5.6 GB ClashLab media +
+18 GB legacy recordings) takes hours in the other direction.
+
+### ClashLab site: main copy here
+
+- `~/clashlab-www`, served on :8787 by `clashlab-serve.service` (http://ai-server-2:8787,
+  http://100.65.60.112:8787). Built every 10 min by `clashlab-update.timer` from the runs root `~/ClashRuns`
+  (holds every Mac run too, plus `clashlab_site.json` with the pins and the 18 archived runs) and published
+  locally (`CLASHLAB_PUBLISH_HOST=local`: media hard-linked, text copied).
+- `python -m clashlab publish` defaults to `ai-server-2:~/clashlab-www`. Runs made on the Mac:
+  `ops/strixhalo/push_runs.sh`.
+- AI Server 1's `AlphaClash-Dashboard` task runs `C:\AI-Server\tools\alphaclash-dash\redirect.cmd` ->
+  `clashlab_redirect.py`: HTML paths get a "moved" page with both links and a 2 s redirect, other paths a 302, both
+  to the same path on the box. While the legacy tree (`recordings/`, `legacy.html`, `_logs/`) is still being
+  copied it is served in place (`--keep-local`); the clashjob `legacy_redirect_done.sh` (queued `--after` the copy)
+  drops those flags. Rollback: point the task back at `range_server.py`; the files in `C:\AI-Server\www\alphaclash`
+  are untouched.
+
+### ClashLink hub stays on AI Server 1
+
+The hub submits whitelisted GPU jobs into AI Server 1's queue, serves the file roots those jobs write (designer,
+league, runs, basefinder) and the PPO learner reaches it on 127.0.0.1. The box's league workers are clients. The
+actor <-> learner traffic crosses the WAN once whichever side holds the hub, so moving it would add a WAN hop for
+the learner and need remote job submission, for no gain. Ports: AI Server 1 8892 (hub), 8890 (learner, on demand),
+8787 (redirect only); AI Server 2 8787 (ClashLab), 22, 8080 (LLM server, not Clash). No firewall on the box (ufw
+inactive); Tailscale is the boundary.
+
+### Gotchas found during the move
+
+- **Forked workers + OpenCV deadlock.** `parse_scraped18`'s scenery pool hung forever on Linux: the parent had
+  started OpenCV's thread pool, and `cv2.setNumThreads(1)` in a forked child waits on a lock that no thread will
+  release (Windows spawns workers, so AI Server 1 never showed it). `basefinder_parse.sh` sets
+  `OPENCV_FOR_THREADS_NUM=1`.
+- **Windows OpenSSH key ACLs under SYSTEM.** A key that poopl can read is "too open" for SYSTEM. Use ACL SYSTEM +
+  Administrators only (poopl is an administrator, so poopl's shells can still use it).
+- **The box's Wi-Fi drops for minutes at a time** (seen twice on 2026-10-10). Running clashjobs are not affected; ssh
+  sessions and transfers are, and wsync retries them. A cable is better.
+- BaseFinder needs `torchvision`, `scikit-image`, `opencv-python-headless` (now in `requirements.txt` /
+  `bootstrap.sh`), the reg18 model dir (`REG18_DIR`), and a ClashEngineering checkout with `artifacts/` for
+  render-and-compare (the `ce_v5` worktree links the main checkout's untracked artifacts).
 
 ## What is where on the box
 

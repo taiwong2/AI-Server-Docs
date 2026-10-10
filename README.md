@@ -25,6 +25,10 @@ The three things that make it different from a laptop you SSH into:
 3. **Long work belongs in the queue, not in your session.** A queued job
    survives your session ending, the box sleeping, and the machine rebooting.
 
+**Clash of Clans system (since 2026-10-10):** this machine does only its **GPU
+training**. All Clash CPU work and the ClashLab website (http://ai-server-2:8787)
+live on **AI Server 2** — see [AI Server 2](docs/15-ai-server-2-battle-box.md).
+
 ---
 
 ## Start here

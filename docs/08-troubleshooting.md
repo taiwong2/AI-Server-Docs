@@ -233,3 +233,19 @@ untrusted mount point: 'C:\Users\poopl\AppData\Local\Programs\OpenAI\Codex\bin'`
 script locations, and the Codex `bin` folder is a mount point that network logons treat as untrusted. Fix: drop that
 entry for the command, e.g. in PowerShell
 `$env:PATH = ($env:PATH -split ';' | ? { $_ -notmatch 'OpenAI\\Codex' }) -join ';'` and add `--no-warn-script-location`.
+
+## ssh from a SYSTEM queue job: "UNPROTECTED PRIVATE KEY FILE ... bad permissions" (2026-10-10)
+
+A key made by poopl (`ssh-keygen` as poopl gives Administrators F, SYSTEM F, poopl M) works in poopl's shells but
+is rejected when a queue job (SYSTEM) uses it: for SYSTEM, poopl counts as "another user". Give the key file only
+SYSTEM and Administrators, owned by Administrators:
+`icacls KEY /inheritance:r /grant:r SYSTEM:F /grant:r Administrators:F /remove poopl` and
+`icacls KEY /setowner Administrators`. poopl is an administrator, so its ssh sessions can still use it. Used by
+`C:\AI-Server\scripts\box.cmd` (key `C:\AI-Server\state\ssh\ai-server-2_ed25519`).
+
+## BaseFinder parse hangs forever on Linux (AI Server 2), 0 % CPU (2026-10-10)
+
+`parse_scraped18.py`'s scenery process pool never returned on AI Server 2. py-spy showed every worker inside
+`cv2.setNumThreads(1)`: the parent had already started OpenCV's thread pool, and a **forked** child waits on a lock
+whose owner thread does not exist in the child. Windows spawns its workers, so it never happened here. Fix: start the
+parent with one OpenCV thread, `OPENCV_FOR_THREADS_NUM=1` (set by ClashEngineering `ops/strixhalo/jobs/basefinder_parse.sh`).

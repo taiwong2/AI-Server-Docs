@@ -1,6 +1,11 @@
 # AlphaClash workspace (new system, 2026-10-07)
 
 Where the rebuilt Clash of Clans RL system is developed on this box, and how to work on it over SSH.
+
+> **Since 2026-10-10 this box does only the GPU training of this system.** Every CPU stage below (parsing,
+> synthetic rendering, sampling, propose, scrapers, forge, the site build and the :8787 site) moved to AI Server 2;
+> the sections below describe how things ran here before and stay as history. Current setup, runner, data mirror
+> and measured transfer speeds: [AI Server 2](15-ai-server-2-battle-box.md).
 The old AlphaClash workspace is archived on Drive (see [Agents and chat](09-agents-and-chat.md)); this is a
 fresh workspace for the **new** system. No training runs here yet: the plan is build → small tests → train.
 

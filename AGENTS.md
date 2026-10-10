@@ -48,6 +48,11 @@ python C:\AI-Server\scripts\jobqueue.py submit --kind claude --arg Prompt="..." 
 Running a 40-minute render inside an interactive session means it dies with the
 session and leaves a half-written output nobody can find.
 
+**Clash of Clans work:** only GPU training goes in this queue (with a gpulease).
+Clash CPU work (battles, sampling, parsing, rendering, scraping, site builds)
+goes to AI Server 2's runner: `C:\AI-Server\scripts\box.cmd submit ...` here, or
+`ssh ai-server-2 clashjobs submit ...` (docs/15, ClashEngineering `ops/README.md`).
+
 ## 3. Assume the machine may be asleep
 
 It suspends when its queue is empty and nobody is using it. Before concluding

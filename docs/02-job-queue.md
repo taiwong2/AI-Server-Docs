@@ -90,6 +90,15 @@ Rules for a job kind:
   a launcher so the queue does not need to know where the repo is checked out.
 - **Resolve paths explicitly** (AGENTS.md rule 7).
 
+## Clash CPU work does not go here (since 2026-10-10)
+
+This queue is for **GPU training** of the Clash system (designer / designer_ar training and fine-tunes, BaseFinder
+grid / level / reg18 training, the PPO learner), each job under a gpulease. Clash CPU jobs (battles, forge / PBS,
+designer sampling / propose / ftdata / datasets / realism, BaseFinder parsing and synthetic rendering, scrapers,
+site builds) run on AI Server 2's runner `clashjobs` ([AI Server 2](15-ai-server-2-battle-box.md)); from here:
+`C:\AI-Server\scripts\box.cmd submit --lane L --cpus N -- COMMAND` (works from SYSTEM jobs). The CPU job kind
+`basefinder_synth` and the CPU shell launchers stay only for chains that were already running.
+
 ## Lanes (added 2026-10-08)
 
 By default the queue runs **one job at a time**. A job may ask for a **lane**; at most one job runs per lane,
