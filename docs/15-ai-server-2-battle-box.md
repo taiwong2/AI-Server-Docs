@@ -159,6 +159,7 @@ inactive); Tailscale is the boundary.
 |---|---|---|
 | `clashlab-update.timer` | enabled, running | Every 10 min: record sampled battles, rebuild the site, publish it locally to the main copy `~/clashlab-www`. |
 | `clashlab-serve.service` | enabled, running, `Restart=always` | Serves the main copy `~/clashlab-www` on `:8787` (behind `tailscale serve` HTTPS). |
+| `clashlab-monitor.timer` | enabled (user, every 2 min) | `python -m clashlab.monitor collect --dest ~/clashlab-www`: writes `training.json` for the site's live **Training** page (runs + stall detection, designer/BaseFinder training dirs, AI Server 1 queue/leases/GPUs, clash-jobs, ai-power gates, LLM units, Colab, event feed). ~1.5 s CPU per pass; matches no ai-power keep-awake unit or busy process; polls AI Server 1 over ssh every pass only while it runs jobs/holds leases, else every 15 min (its jobqueue counts inbound ssh as a sleep blocker). Merges parts the Mac pushes to `~/clashlab-www/training/parts/` (Mac LaunchAgent `com.clashlab.monitor`, Colab data; pushes only when something is live, else hourly). Notes: `python -m clashlab.monitor note WORKSTREAM "text" [--next M]` (appends `~/ClashRuns/clashlab_notes.jsonl`). |
 | `clash-jobs.service` | enabled, running, `Restart=always` | The CPU job runner (clashjobs). |
 | `clashlab-league@.service` | installed, **not enabled, stopped** | `clashlab.league cycle %i --gens 1000`, `Restart=always`. |
 
