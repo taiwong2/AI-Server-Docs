@@ -257,3 +257,11 @@ parent with one OpenCV thread, `OPENCV_FOR_THREADS_NUM=1` (set by ClashEngineeri
 call at its timeout and checks for orphans when a session is lost. To clean up by hand:
 `python -m clashlab.colab sweep --orphans --gpu CPU` (or `A100` / `L4`). Check `colab usage`: "Active assignments"
 must be 0 when no job runs. See [docs/18](18-colab-burst-gpu.md).
+
+## WSL2 distro cannot reach Windows ports, even 127.0.0.1 is refused (2026-10-10)
+
+In clash-sim (mirrored networking) every TCP connect, to Windows (`127.0.0.1:8890`, `192.168.1.24:8890`) and even to a
+listener inside the same distro, fails with "Connection refused"; DNS via the generated resolv.conf also fails. Do not
+change `.wslconfig` (needs `wsl --shutdown`, stops pp-antoine). Use Unix sockets + Windows interop relays
+(docs/19-clash-sim-wsl.md) and a static resolv.conf. Also: `wsl.exe` refuses to run as SYSTEM
+(WSL_E_LOCAL_SYSTEM_NOT_SUPPORTED), so start WSL work from an S4U scheduled task, not a job-queue job.
