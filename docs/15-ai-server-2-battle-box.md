@@ -94,7 +94,7 @@ same). So: compute on the box, push results; a 40 GB synthetic set takes about 5
 - **URL: https://ai-server-2.tail215694.ts.net/** (tailnet-only HTTPS: `sudo tailscale serve --bg 8787`, persistent
   across reboots; `tailscale serve status`). Also http://ai-server-2:8787 and http://100.65.60.112:8787. Video seeking
   (HTTP Range, 206) works through serve.
-- `~/clashlab-www`, served on :8787 by `clashlab-serve.service`. Built every 10 min by `clashlab-update.timer` from the runs root `~/ClashRuns`
+- `~/clashlab-www`, served on :8787 by `clashlab-serve.service`. Rebuilt incrementally every 90 s by `clashlab-site.timer` from every runs root (`~/ClashRuns` and `~/Documents/ClashRuns`, de-duplicated by run id); videos ahead of time by `clashlab-record.timer`, any other battle on demand from its run page (`/api/render`)
   (holds every Mac run too, plus `clashlab_site.json` with the pins and the 18 archived runs) and published
   locally (`CLASHLAB_PUBLISH_HOST=local`: media hard-linked, text copied).
 - `python -m clashlab publish` defaults to `ai-server-2:~/clashlab-www`. Runs made on the Mac:
@@ -150,7 +150,7 @@ inactive); Tailscale is the boundary.
 | synthetic rendering + streaming push (`basefinder_synth.sh STREAM=1`, 1,200 images, 10 workers) | 3.4 min (5.9 images/s), 860 MB pushed to AI Server 1 complete (2,404 files); push 2.3 MB/s while the www pulls shared the Wi-Fi |
 | AI Server 1 -> box submit (`box.cmd`) | works from poopl's shell and from a SYSTEM queue job; other commands are refused by the forced command |
 | league `designer.cpu_on_box` (dsg1 config, tiny propose) | mirror pull + local propose run; propose then fails on the designer's known 0-valid / `np.stack([])` problem, exactly as it does on AI Server 1 |
-| reboot safety | after the 2026-10-10 shutdown `clash-jobs`, `clashlab-serve`, `clashlab-update.timer` came back by themselves; jobs killed by the shutdown are recorded as failed (exit -15) and wsync jobs are simply resubmitted (resumable) |
+| reboot safety | after the 2026-10-10 shutdown `clash-jobs`, `clashlab-serve`, the site timer (then `clashlab-update.timer`) came back by themselves; jobs killed by the shutdown are recorded as failed (exit -15) and wsync jobs are simply resubmitted (resumable) |
 
 ## What is where on the box
 
@@ -169,9 +169,10 @@ inactive); Tailscale is the boundary.
 
 | unit | state | what |
 |---|---|---|
-| `clashlab-update.timer` | enabled, running | Every 10 min: record sampled battles, rebuild the site, publish it locally to the main copy `~/clashlab-www`. |
-| `clashlab-serve.service` | enabled, running, `Restart=always` | Serves the main copy `~/clashlab-www` on `:8787` (behind `tailscale serve` HTTPS). |
-| `clashlab-monitor.timer` | enabled (user, every 2 min) | `python -m clashlab.monitor collect --dest ~/clashlab-www`: writes `training.json` for the site's live **Training** page (runs + stall detection, designer/BaseFinder training dirs, AI Server 1 queue/leases/GPUs, clash-jobs, ai-power gates, LLM units, Colab, event feed). ~1.5 s CPU per pass; matches no ai-power keep-awake unit or busy process; polls AI Server 1 over ssh every pass only while it runs jobs/holds leases, else every 15 min (its jobqueue counts inbound ssh as a sleep blocker). Merges parts the Mac pushes to `~/clashlab-www/training/parts/` (Mac LaunchAgent `com.clashlab.monitor`, Colab data; pushes only when something is live, else hourly). Notes: `python -m clashlab.monitor note WORKSTREAM "text" [--next M]` (appends `~/ClashRuns/clashlab_notes.jsonl`). |
+| `clashlab-site.timer` | enabled (user, every 90 s) | `clashlab update --no-record`: incremental rebuild (only runs whose files / media changed; a no-op pass when nothing changed, ~1-10 s at Nice 15) and local publish to `~/clashlab-www`. Pages refresh themselves in the browser from `live.json`. Replaced `clashlab-update.timer` on 2026-10-10 (one 25-min record+site pass). Units: `ops/strixhalo/clashlab_units.sh`. |
+| `clashlab-record.timer` | enabled (user, every 10 min) | `clashlab update --no-site --policy pre`: ahead-of-time videos only for curated battles and the newest eval battle per eval step, SCHED_IDLE / Nice 19. |
+| `clashlab-serve.service` | enabled, running, `Restart=always` | Serves the main copy `~/clashlab-www` on `:8787` (behind `tailscale serve` HTTPS) and `/api/render` (tailnet/localhost only): a run page's render button queues one `clashjobs --idle` job in lane `render` (SCHED_IDLE, Nice 19, CPUQuota 200 %, outside the CPU budget, one at a time, <= 6 waiting): `clashlab record RUN --only BATTLE` at 720p/24 fps/x264 veryfast (~2.5 min), then a site pass publishes it. |
+| `clashlab-monitor.timer` | enabled (user, every 2 min) | `python -m clashlab.monitor collect --dest ~/clashlab-www`: writes `training.json` for the site's live **Training** page (runs + stall detection, designer/BaseFinder training dirs, AI Server 1 queue/leases/GPUs, clash-jobs, ai-power gates, LLM units, Colab, event feed). ~1.5 s CPU per pass; matches no ai-power keep-awake unit or busy process; polls AI Server 1 over ssh every pass only while it runs jobs/holds leases, else every 15 min (its jobqueue counts inbound ssh as a sleep blocker). Merges parts the Mac pushes to `~/clashlab-www/training/parts/` (Mac LaunchAgent `com.clashlab.monitor`, Colab data; pushes only when something is live, else hourly). Notes: `python -m clashlab.monitor note WORKSTREAM "text" [--next M]` (appends `~/ClashRuns/clashlab_notes.jsonl`). Every 10 min it also auto-archives (`clashlab archive --auto`: dead runs at once, failed/stopped > 2 h, finished scratch runs > 1 h; never running runs or a workstream's newest successful run) and notes each in the feed; runs archived on any machine (each part carries its archive list) raise no alerts; links to pages the site lacks are dropped. |
 | `clash-jobs.service` | enabled, running, `Restart=always` | The CPU job runner (clashjobs). |
 | `clashlab-league@.service` | installed, **not enabled, stopped** | `clashlab.league cycle %i --gens 1000`, `Restart=always`. |
 

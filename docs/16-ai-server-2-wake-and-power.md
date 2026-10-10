@@ -24,7 +24,7 @@ has been idle continuously for `grace_minutes` (**10**):
 | cpu | whole-box CPU above 12 % (1-minute average): catches work nobody tagged |
 | network | NIC traffic above 1.5 Mbit/s (1-minute average): catches big transfers |
 
-`clashlab-update.service` (a 10-60 s site rebuild every 10 min) only **postpones** the suspend while it runs. It does
+`clashlab-site.service` (a 1-30 s incremental site pass every 90 s) and `clashlab-record.service` (idle-CPU recorder) only **postpone** the suspend while they run (an on-demand render is a `clashjob-*` unit and holds the box awake only while it renders). It does
 not restart the grace window, or the box would never sleep. A clashjob scheduled to start within about 4 minutes
 also postpones it.
 
