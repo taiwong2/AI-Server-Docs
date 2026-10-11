@@ -21,8 +21,9 @@ priority**: it must stay usable for the user at all times.
 | `attv3-infer` | CA-4 shared inference server on the 5070 Ti (`/run/clash/attv3_infer.sock`) | Nice 10, CPUWeight 50, MemoryMax 3G |
 | `attv3-ractors` | CA-4 remote actors, `--connect 192.168.10.9:8895` **direct over the LAN** (WSL NAT reaches AI Server 2; no relay, unlike AI Server 1), `CLASHLAB_ACTOR_HOST=TPC` (the hub logs "remote N from TPC") | Nice 10, CPUWeight 50, MemoryMax 8G; default 2 procs x 3 envs (~3.4 GB RSS per proc) |
 
-Update code: `wsl -d clash-sim -u root -- /opt/clash/units/update.sh [REF]` (fetches AI Server 2's `origin/main` and
-branches as `as2/*`, checks out REF, restarts both units).
+Update code: `wsl -d clash-sim -u root -- /opt/clash/units/update.sh [REF]` (fetches AI Server 2's branches as `as2/*`,
+default REF `as2/main`, checks out REF, restarts both units). The engine data also needs `extracted/lib/arm64-v8a`
+(read by tools/native_battle_probe.py since 668ead8; rsynced from AI Server 2).
 
 ## Persistence
 

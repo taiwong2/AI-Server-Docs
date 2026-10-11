@@ -74,10 +74,11 @@ the job queue.
 
 **Raised again (2026-10-10, later): `memory=64GB`, `processors=30`** (user: max capacity for simulation). Backup `.wslconfig.bak-20261010b`. Applied with `wsl --shutdown`, then `AI-AntoineEnv`, `AI-ClashSim`, `AI-ClashSim-Relay` and `AI-ClashSim-Attv3Relay` were started again. Transient systemd-run units inside clash-sim (e.g. the CA-4 remote actors) do not survive a WSL restart and must be relaunched (or made persistent units). Leaves ~29 GB + 2 threads for Windows, the GPU learners and the job queue.
 
-### Fleet filler: fleet-teach, fleet-teach2, fleet-teach3 (2026-10-10)
+### Fleet filler: fleet-teach, fleet-teach2 (2026-10-10)
 Persistent units (owner: fleet-utilisation agent; consumers: the attacker / plan-exit agents) run the CA-4 PBS teacher
-corpus generator in the spare CPU: `clashlab.train.teacher gen` (teach-v5 arguments, 7 envs each, cache 400 MB) ->
-`/opt/clash/attv3/teacher_v5f` (seed 405), `teacher_v5f2` (406), `teacher_v5f3` (407). Three streams because one
-teacher's coordinator process is single-threaded (100% of one core feeds ~7 workers). Nice 15, CPUWeight 20,
-IOWeight 20, MemoryMax 13G each, Restart=always, so the CA-4 actors (Nice 0) always win CPU. Resumable
-(episodes.jsonl keys). Stop: `systemctl disable --now fleet-teach fleet-teach2 fleet-teach3`.
+corpus generator in the spare CPU: `clashlab.train.teacher gen` (teach-v5 arguments, 5 envs each, cache 300 MB) ->
+`/opt/clash/attv3/teacher_v5f` (seed 405) and `teacher_v5f2` (406); `fleet-teach3` (`teacher_v5f3`, 407) exists but is
+disabled. Several streams because one teacher's coordinator process is single-threaded. Nice 15, CPUWeight 20,
+IOWeight 20, MemoryMax 10G each, Restart=always. **Filler always yields**: keep >= 10 GB MemAvailable for owner jobs
+(the dsg23 judge was OOM-killed when three 13G streams ran). Do not lower MemoryMax at runtime below current usage
+(it OOM-kills the unit); shrink --envs first. Stop: `systemctl disable --now fleet-teach fleet-teach2`.
