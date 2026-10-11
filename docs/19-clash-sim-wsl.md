@@ -68,3 +68,5 @@ Desktop starved training). Raised so clash-sim can carry the attacker / CA-4 sim
 the LLM. Applying it needed `wsl --shutdown`, which restarts every distro (pp-antoine comes back via
 `\AI-AntoineEnv`). Backup: `.wslconfig.bak-20261010`. Leaves ~37 GB + 8 threads for Windows, the GPU learners and
 the job queue.
+
+**Raised again (2026-10-10, later): `memory=64GB`, `processors=30`** (user: max capacity for simulation). Backup `.wslconfig.bak-20261010b`. Applied with `wsl --shutdown`, then `AI-AntoineEnv`, `AI-ClashSim`, `AI-ClashSim-Relay` and `AI-ClashSim-Attv3Relay` were started again. Transient systemd-run units inside clash-sim (e.g. the CA-4 remote actors) do not survive a WSL restart and must be relaunched (or made persistent units). Leaves ~29 GB + 2 threads for Windows, the GPU learners and the job queue.
