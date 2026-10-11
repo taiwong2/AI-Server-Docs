@@ -80,5 +80,35 @@ corpus generator in the spare CPU: `clashlab.train.teacher gen` (teach-v5 argume
 `/opt/clash/attv3/teacher_v5f` (seed 405) and `teacher_v5f2` (406); `fleet-teach3` (`teacher_v5f3`, 407) exists but is
 disabled. Several streams because one teacher's coordinator process is single-threaded. Nice 15, CPUWeight 20,
 IOWeight 20, MemoryMax 10G each, Restart=always. **Filler always yields**: keep >= 10 GB MemAvailable for owner jobs
-(the dsg23 judge was OOM-killed when three 13G streams ran). Do not lower MemoryMax at runtime below current usage
+(the dsg23 judge was OOM-killed when three 13G streams ran). **2026-10-11: fleet-teach and fleet-teach2 stopped** (memory for the pf arm's 6x6 actors, peak 42 GB); they come back only under the clash-sim runner's memory admission. Do not lower MemoryMax at runtime below current usage
 (it OOM-kills the unit); shrink --envs first. Stop: `systemctl disable --now fleet-teach fleet-teach2`.
+
+### clash-sim job runner: AS2 CPU jobs on AI Server 1 (2026-10-11)
+Owner: fleet-utilisation agent. Code: ClashEngineering `ops/aiserver/clashsim.py` (AS2 driver) + `ops/strixhalo/clashjobs.py`
+(the same runner as AS2, in system-unit mode).
+
+* **Runner:** system unit `clash-jobs.service` in clash-sim (`CLASHJOBS_ROOT=/opt/clash/jobs`, `CLASHJOBS_SYSTEMD=system`);
+  CLI `clashjobs` (`/usr/local/bin/clashjobs`, a wrapper). Every job is a transient `clashjob-<id>` unit with a hard
+  `MemoryMax` (= `--mem-gb`, swap off), `CPUQuota` = `--cpus`, nice 5/10/19 tiers.
+* **Memory admission (final, 2026-10-11 03:05 PDT):** every job unit has `OOMScoreAdjust=900` (`job_oom_score_adjust`),
+  so a global OOM in the VM kills a job, never the actors / infer / offeval / pp-antoine. Guard units count at their
+  current usage + 10 % while they run at >= 50 % of their remembered peak (`guard_basis: current`), and at the whole
+  remembered peak (`guard_peaks.json`, survives unit restarts) while they (re)start: no job starts during an actor
+  outage. Antoine reserve `mem_reserve_gb` 5. `max_load` 1.0 x 30.
+* **Budget** (`/opt/clash/jobs/config.json`, read live): `total_cpu_budget` 14 of the 30 threads for all jobs together
+  (the rest stays with the attacker's actors, the inference/offeval units and pp-antoine); `mem_reserve_gb` 8;
+  `guard_units` attv3-ractors / attv3-infer / attv3-offeval: their unused MemoryMax is NOT handed to jobs (a
+  benchmark that ignored this caused a global OOM in the VM on 2026-10-11 01:40 PDT that killed attv3-infer and
+  attv3-offeval; pp-antoine was not hit). `yield_units` fleet-teach / fleet-teach2: the filler is stopped while a job
+  is memory-blocked and restarted 15 min after (only units the runner itself stopped).
+* **Data:** `clashsim setup --data` also mirrors AS2's `~/ClashEngineering/artifacts/` (all but `ghidra/`), which the worktrees link entry by entry.
+* **Mirrored paths:** jobs see AS2's absolute paths (`/home/taiwong/...`, `HOME=/home/taiwong`). `/home/taiwong/ClashEngineering`
+  holds the tracked code, `extracted/`, `.toolchain/{armies,attacker,oracle_sim}` and `.venv` -> `/opt/clash/jobs/venv`
+  (AS2's exact package set, CPU torch, PIE python). Provision / refresh from AS2: `clashsim setup [--runner|--data|--venv]`.
+* **Submitting (from AS2):** `clashsim submit [clashjobs flags] --cwd WORKTREE --push INPUT --pull OUTPUT -- CMD`
+  queues a proxy clashjob on AS2 (`cs:NAME`, 0 CPUs, same lane / `--after`), which rsyncs the inputs over
+  `ssh ai-server wsl.exe -d clash-sim -u root` (Windows interop works from an ssh session), submits, streams the log,
+  pulls outputs every 10 min and at the end, and mirrors the exit code. Cancelling the proxy cancels the remote job.
+  `clashsim remote list|status|log ID|cancel ID` talks to the clash-sim runner directly.
+* **Stop everything:** `systemctl disable --now clash-jobs` in clash-sim (running jobs keep their own units; stop them
+  with `clashjobs cancel ID`).

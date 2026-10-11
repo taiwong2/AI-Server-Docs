@@ -282,6 +282,11 @@ jobs); backups `~/clash-jobs.service.bak-20261010`, `/usr/local/bin/clashjobs.ba
 properties they were started with.
 
 **Use the `clashjobs` command, not the deploy copy's file (2026-10-11).** The runner may run a newer clashjobs.py than
-the deploy copy (now a drop-in `clash-jobs.service.d/ce-render.conf` -> `~/ce_render`). (2026-10-11: deploy copy synced to 1a97d6a; `clashlab-serve` is back on the deploy copy, its drop-in renamed `ce-render.conf.off`. The clash-jobs drop-in stays until no jobs run, since restarting the runner touches live jobs.) `/usr/local/bin/clashjobs`
+the deploy copy (now a drop-in `clash-jobs.service.d/ce-render.conf` -> `~/ce_render`). (2026-10-11: deploy copy synced to 1a97d6a; `clashlab-serve` is back on the deploy copy, its drop-in renamed `ce-render.conf.off`. The clash-jobs drop-in stays until no jobs run, since restarting the runner touches live jobs.) (2026-10-11 05:07 CDT, fleet agent: deploy copy synced to 96c9d2c; the clash-jobs drop-in renamed
+`ce-render.conf.off` and the base unit's ExecStart moved from `~/ce_fleetmon` to `%h/ClashEngineering/ops/strixhalo/clashjobs.py`
+(backup `clash-jobs.service.bak-20261011`); runner restarted with 18 jobs running, none lost (they are their own
+`clashjob-*` units). `~/clash-jobs/config.json` gained `idle_borrow: true` (the idle tier may use the normal tier's
+unused declared CPUs; idle jobs run at low CPUWeight / SCHED_IDLE so normal jobs still win) and `max_load: 1.05` (no idle
+job starts while the 1-min load is above 1.05 x 32).) `/usr/local/bin/clashjobs`
 reads the runner's ExecStart and runs that same file, so `clashjobs status/submit/reprio` always match the runner.
 `~/ClashEngineering/ops/strixhalo/clashjobs.py` lags until the next deploy sync and misreports budgets.
