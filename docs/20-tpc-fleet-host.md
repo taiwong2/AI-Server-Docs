@@ -1,6 +1,6 @@
 # TPC: the user's PC as a capped Clash fleet host
 
-> **Status 2026-10-11 (evening): back ON for simulation at the user's request.** Clash-SimKeepalive re-enabled and clash-sim running (12 thr, ~11 GB cap). attv3-ractors / attv3-infer are being repointed to the plan-following CA-4 run (attacker owner) and re-enabled once healthy.
+> **Status 2026-10-11 (evening): back ON for simulation at the user's request.** Clash-SimKeepalive re-enabled. User said go all-in on simulation: user apps closed (Chrome, Steam, Riot/League, Roblox, emulators, Razer, MathWorks) and `%USERPROFILE%\.wslconfig` raised to memory=22GB, processors=15, swap=4GB (was 12GB/12/2GB); clash-sim now 15 thr / 21 GB. attv3-ractors / attv3-infer are being repointed to the plan-following CA-4 run (attacker owner) and re-enabled once healthy.
 
 
 Added 2026-10-10 (fleet utilisation). TPC is the user's own Windows PC, so everything on it is **capped and low
