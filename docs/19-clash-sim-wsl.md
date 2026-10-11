@@ -114,3 +114,10 @@ Owner: fleet-utilisation agent. Code: ClashEngineering `ops/aiserver/clashsim.py
   `clashsim remote list|status|log ID|cancel ID` talks to the clash-sim runner directly.
 * **Stop everything:** `systemctl disable --now clash-jobs` in clash-sim (running jobs keep their own units; stop them
   with `clashjobs cancel ID`).
+
+**2026-10-11 ~22:10 UTC: AI-ClashSim DISABLED (retired PPO actor).** `C:\WSL\clash-sim.args` still pointed it at the
+retired PPO run (`--remote 100.65.60.112:8893`, learner relay 8894): a 7-proc remote actor had been looping since the
+last WSL start. PPO is retired (attacker = CA-4 only), so `schtasks /change /tn AI-ClashSim /disable`, task ended,
+`C:\WSL\clash-sim.stop` written, the actor and its `hub-out.sock` / `learner-8894.sock` socat relays killed. Do not
+re-enable for attacker work: CA-4 actors run as `attv3-ractors`, and clash-sim batch work goes through `clashsim submit`
+(clash-jobs.service). After a `wsl --shutdown`, do NOT restart AI-ClashSim.
