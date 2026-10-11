@@ -273,3 +273,12 @@ sshd refused every new connection while already-open (multiplexed) sessions kept
 was already set, so keepalives don't catch these. Fix: the hourly scheduled task **AI-SshdReap**
 (`C:\AI-Server\scripts\sshd-reap.ps1`, SYSTEM) stops sshd session processes older than 2 h that own no TCP
 connection; log in `C:\AI-Server\logs\sshd-reap.log`. Check with `(Get-Process sshd).Count` (normal: a handful).
+
+### clash-sim: Windows .exe gives "Exec format error" after `wsl --shutdown`
+
+Seen 2026-10-10: after a WSL restart (systemd=true), clash-sim came back with the binfmt entry
+`/proc/sys/fs/binfmt_misc/WSLInterop` present but **disabled**, so every Windows binary (the attv3 relay's
+`python.exe`) failed with `Exec format error` and the CA-4 remote actors got EOF on `/run/clash/attv3_hub.sock`.
+Fix: `echo 1 > /proc/sys/fs/binfmt_misc/WSLInterop` as root (or register `:WSLInterop:M::MZ::/init:PF` if it is
+missing). Persisted in `/etc/binfmt.d/WSLInterop.conf`, and `C:\WSL\attv3_relay_task.ps1` re-enables it before each
+relay start.

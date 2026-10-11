@@ -53,7 +53,10 @@ Hyper-V firewall also blocks inbound. Unix sockets work, and so does Windows int
   `type nul > C:\WSL\attv3-learner.stop`.
 * CA-4 GPU policy in clash-sim: the job-queue job `clashpy clashlab.train.gpulease_hold` holds a gpulease and writes the
   card index to `C:\Users\poopl\attv3_lease.txt`; units set `CUDA_VISIBLE_DEVICES` from it (CUDA torch venv
-  `/opt/clash/attv3_cuda`). attv3 units: `attv3-*` (systemd-run, MemoryMax caps).
+  `/opt/clash/attv3_cuda`). attv3 units: real enabled systemd units installed by ClashEngineering
+  `ops/aiserver/clash_sim_attv3/install_units.sh [PROCS] [ENVS]`: `attv3-infer` (shared CA-4 inference server on
+  GPU0, `/run/clash/attv3_infer.sock`), `attv3-ractors` (10 actor procs x 3 envs, CPU, batched through attv3-infer)
+  and `attv3-offeval` (offline checkpoint evals, GPU1 with the learner). `ATTV3_GPU` in a unit overrides the lease file.
 * DNS: the generated resolv.conf points at fec0:: resolvers that do not answer; `/etc/resolv.conf` is static
   (192.168.1.1, 1.1.1.1) with `generateResolvConf = false` and systemd-resolved disabled.
 
