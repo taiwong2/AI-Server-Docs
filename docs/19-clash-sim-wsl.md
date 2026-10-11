@@ -76,7 +76,7 @@ the job queue.
 
 **Raised again (2026-10-10, later): `memory=64GB`, `processors=30`** (user: max capacity for simulation). Backup `.wslconfig.bak-20261010b`. Applied with `wsl --shutdown`, then `AI-AntoineEnv`, `AI-ClashSim`, `AI-ClashSim-Relay` and `AI-ClashSim-Attv3Relay` were started again. Transient systemd-run units inside clash-sim (e.g. the CA-4 remote actors) do not survive a WSL restart and must be relaunched (or made persistent units). Leaves ~29 GB + 2 threads for Windows, the GPU learners and the job queue.
 
-**Raised again (2026-10-11 ~15:00 CDT): `memory=76GB`** (processors 30, swap 0 unchanged; user approved, for the pf
+**Raised again (2026-10-11 ~17:03 CDT): `memory=76GB`** (processors 30, swap 0 unchanged; user approved, for the pf
 arm moving onto clash-sim). Backup `.wslconfig.bak-20261011`. Applied with `wsl --shutdown`, timed before pf moved so
 it restarted once. After the restart the persistent units came back by themselves (clash-jobs, attv3-infer,
 attv3-offeval, attv3-ractors; the relay tasks AI-ClashSim-Relay / AI-ClashSim-Attv3Relay reconnected, 8893 listening,
