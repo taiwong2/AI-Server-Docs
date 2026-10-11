@@ -260,3 +260,11 @@ only; `dsg1` does not use it and waits for a lane).
   96 panel battles on the box in 23 s, holdout_D, and the crosstable.
 - AI server files: `data\league\dsmoke1\` (the smoke) and `data\league\dsg1\` (created by the first `dsg1`
   generation).
+
+### TPC access from AI Server 2 (2026-10-10)
+`~/.ssh/config` has `Host tpc` (100.99.161.31, user tai, key `ai-server_strix`) for the ClashLab monitor's TPC poll,
+and `~/.ssh/authorized_keys` accepts TPC's clash-sim key (`tpc-clash-sim`, only from 192.168.10.11 / 100.99.161.31)
+so TPC can clone code and rsync engine data over the LAN (backup `authorized_keys.bak-20261010-fleet`). The
+monitor timer `clashlab-monitor.service` now runs from the pinned worktree `~/ce_fleetmon` (detached at
+`agent/fleet-monitor`) instead of the deploy copy, so monitor updates never need a `--busy-ok` deploy sync
+(backup of the old unit: `~/clashlab-monitor.service.bak-20261010`). See [TPC](20-tpc-fleet-host.md).
