@@ -282,6 +282,6 @@ jobs); backups `~/clash-jobs.service.bak-20261010`, `/usr/local/bin/clashjobs.ba
 properties they were started with.
 
 **Use the `clashjobs` command, not the deploy copy's file (2026-10-11).** The runner may run a newer clashjobs.py than
-the deploy copy (now a drop-in `clash-jobs.service.d/ce-render.conf` -> `~/ce_render`). `/usr/local/bin/clashjobs`
+the deploy copy (now a drop-in `clash-jobs.service.d/ce-render.conf` -> `~/ce_render`). (2026-10-11: deploy copy synced to 1a97d6a; `clashlab-serve` is back on the deploy copy, its drop-in renamed `ce-render.conf.off`. The clash-jobs drop-in stays until no jobs run, since restarting the runner touches live jobs.) `/usr/local/bin/clashjobs`
 reads the runner's ExecStart and runs that same file, so `clashjobs status/submit/reprio` always match the runner.
 `~/ClashEngineering/ops/strixhalo/clashjobs.py` lags until the next deploy sync and misreports budgets.
