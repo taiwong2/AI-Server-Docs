@@ -48,9 +48,11 @@ Hyper-V firewall also blocks inbound. Unix sockets work, and so does Windows int
   `wsl.exe` session: a systemd unit or a SYSTEM job-queue job cannot run the relay (socat children exit with EOF /
   WSL_E_LOCAL_SYSTEM_NOT_SUPPORTED). Remote actors connect with `--connect unix:/run/clash/attv3_hub.sock`.
   Stop: `type nul > C:\WSL\attv3-relay.stop`.
-* CA-4 learner keeper: scheduled task **AI-Attv3LearnerKeeper** (S4U, `C:\WSL\attv3_learner_keeper.ps1`) resubmits the
-  `clashlearner` job (lane attv3-learner, ce_attv3 checkout, :8891) when :8891 stops answering. Stop:
-  `type nul > C:\WSL\attv3-learner.stop`.
+* CA-4 learner keeper: **retired 2026-10-11**. Scheduled task **AI-Attv3LearnerKeeper** is disabled (and
+  `C:\WSL\attv3-learner.stop` exists): hard-wired to run e's ce_attv3 checkout, it twice put a learner with the wrong
+  code on :8891 under the plan-follow run. The attacker run's own `run.py --learner-autostart ai-server --learner-ce
+  <its checkout>` resubmits the `clashlearner` job (lane attv3-learner, :8891) and refuses a learner whose `/status`
+  lacks the run's caps. The plan-follow run's checkout: `AlphaClash-Workspace\ce_planfollow`.
 * CA-4 GPU policy in clash-sim: the job-queue job `clashpy clashlab.train.gpulease_hold` holds a gpulease and writes the
   card index to `C:\Users\poopl\attv3_lease.txt`; units set `CUDA_VISIBLE_DEVICES` from it (CUDA torch venv
   `/opt/clash/attv3_cuda`). attv3 units: real enabled systemd units installed by ClashEngineering
