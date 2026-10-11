@@ -1,5 +1,8 @@
 # TPC: the user's PC as a capped Clash fleet host
 
+> **Status 2026-10-11: OFF at the user's request.** `attv3-infer` and `attv3-ractors` are stopped and disabled, Clash-SimKeepalive is ended and disabled, and `clash-sim` is terminated. To bring it back: `schtasks /change /tn Clash-SimKeepalive /enable`, `schtasks /run /tn Clash-SimKeepalive`, then in clash-sim as root `systemctl enable --now attv3-infer attv3-ractors`.
+
+
 Added 2026-10-10 (fleet utilisation). TPC is the user's own Windows PC, so everything on it is **capped and low
 priority**: it must stay usable for the user at all times.
 
