@@ -76,6 +76,15 @@ the job queue.
 
 **Raised again (2026-10-10, later): `memory=64GB`, `processors=30`** (user: max capacity for simulation). Backup `.wslconfig.bak-20261010b`. Applied with `wsl --shutdown`, then `AI-AntoineEnv`, `AI-ClashSim`, `AI-ClashSim-Relay` and `AI-ClashSim-Attv3Relay` were started again. Transient systemd-run units inside clash-sim (e.g. the CA-4 remote actors) do not survive a WSL restart and must be relaunched (or made persistent units). Leaves ~29 GB + 2 threads for Windows, the GPU learners and the job queue.
 
+**Raised again (2026-10-11 ~15:00 CDT): `memory=76GB`** (processors 30, swap 0 unchanged; user approved, for the pf
+arm moving onto clash-sim). Backup `.wslconfig.bak-20261011`. Applied with `wsl --shutdown`, timed before pf moved so
+it restarted once. After the restart the persistent units came back by themselves (clash-jobs, attv3-infer,
+attv3-offeval, attv3-ractors; the relay tasks AI-ClashSim-Relay / AI-ClashSim-Attv3Relay reconnected, 8893 listening,
+`/run/clash/learner-8891.sock` present). **fleet-teach / fleet-teach2 are `enabled` and start at boot**: stop them
+again after any WSL restart (`systemctl stop fleet-teach fleet-teach2`) while they are meant to be off. pp-antoine
+came back via `AI-AntoineEnv` (sshd on 2222 answering); his open ssh session was dropped. clash-sim now sees 74 GB.
+Leaves ~17 GB for Windows, the GPU learners and the job queue.
+
 ### Fleet filler: fleet-teach, fleet-teach2 (2026-10-10)
 Persistent units (owner: fleet-utilisation agent; consumers: the attacker / plan-exit agents) run the CA-4 PBS teacher
 corpus generator in the spare CPU: `clashlab.train.teacher gen` (teach-v5 arguments, 5 envs each, cache 300 MB) ->
