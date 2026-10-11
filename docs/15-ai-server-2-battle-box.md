@@ -268,3 +268,15 @@ so TPC can clone code and rsync engine data over the LAN (backup `authorized_key
 monitor timer `clashlab-monitor.service` now runs from the pinned worktree `~/ce_fleetmon` (detached at
 `agent/fleet-monitor`) instead of the deploy copy, so monitor updates never need a `--busy-ok` deploy sync
 (backup of the old unit: `~/clashlab-monitor.service.bak-20261010`). See [TPC](20-tpc-fleet-host.md).
+
+### clash-jobs: hard memory caps and CPU tiers (2026-10-10, after the 21:08 global OOM)
+ClashEngineering fe6581d (`ops/strixhalo/clashjobs.py`): every job unit gets `MemoryMax = max(--mem-gb, --memory-max)`
+with swap off (a job that under-declares OOMs only itself). A job starts only if the box survives every running job
+growing to its cap: `MemAvailable + usage(running) - caps(running) - cap(new) >= mem_reserve_gb` (`clashjobs status`
+prints that headroom). `--idle` jobs have their own `idle_cpu_budget` (default 32). CPU tiers by cgroup CPUWeight:
+normal jobs 100 + 10 x priority; `--idle --priority P>0` = experiments (weight 2 + 2P, Nice 10); plain `--idle` = filler
+(SCHED_IDLE, weight 1). `clashjobs reprio ID P` changes a running job's weight live. **Declare realistic memory**: an
+oversized cap blocks other jobs. The runner (`clash-jobs.service`) and `/usr/local/bin/clashjobs` now run
+`~/ce_fleetmon/ops/strixhalo/clashjobs.py` (pinned worktree, updated only from origin/main, never under the deploy copy's
+jobs); backups `~/clash-jobs.service.bak-20261010`, `/usr/local/bin/clashjobs.bak-20261010`. Running jobs keep the
+properties they were started with.
