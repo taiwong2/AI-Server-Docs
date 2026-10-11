@@ -73,3 +73,9 @@ the LLM. Applying it needed `wsl --shutdown`, which restarts every distro (pp-an
 the job queue.
 
 **Raised again (2026-10-10, later): `memory=64GB`, `processors=30`** (user: max capacity for simulation). Backup `.wslconfig.bak-20261010b`. Applied with `wsl --shutdown`, then `AI-AntoineEnv`, `AI-ClashSim`, `AI-ClashSim-Relay` and `AI-ClashSim-Attv3Relay` were started again. Transient systemd-run units inside clash-sim (e.g. the CA-4 remote actors) do not survive a WSL restart and must be relaunched (or made persistent units). Leaves ~29 GB + 2 threads for Windows, the GPU learners and the job queue.
+
+### Fleet filler: fleet-teach (2026-10-10)
+Persistent unit `fleet-teach.service` (owner: fleet-utilisation agent; consumer: the attacker agent) runs the CA-4
+PBS teacher corpus generator in the spare CPU: `clashlab.train.teacher gen` (teach-v5 arguments, seed 405, 14 envs,
+cache 400 MB) -> `/opt/clash/attv3/teacher_v5f`. Nice 15, CPUWeight 20, IOWeight 20, MemoryMax 26G, Restart=always, so
+the CA-4 actors (Nice 0) always win CPU. Resumable (episodes.jsonl keys). Stop: `systemctl disable --now fleet-teach`.
