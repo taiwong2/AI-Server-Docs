@@ -280,3 +280,8 @@ oversized cap blocks other jobs. The runner (`clash-jobs.service`) and `/usr/loc
 `~/ce_fleetmon/ops/strixhalo/clashjobs.py` (pinned worktree, updated only from origin/main, never under the deploy copy's
 jobs); backups `~/clash-jobs.service.bak-20261010`, `/usr/local/bin/clashjobs.bak-20261010`. Running jobs keep the
 properties they were started with.
+
+**Use the `clashjobs` command, not the deploy copy's file (2026-10-11).** The runner may run a newer clashjobs.py than
+the deploy copy (now a drop-in `clash-jobs.service.d/ce-render.conf` -> `~/ce_render`). `/usr/local/bin/clashjobs`
+reads the runner's ExecStart and runs that same file, so `clashjobs status/submit/reprio` always match the runner.
+`~/ClashEngineering/ops/strixhalo/clashjobs.py` lags until the next deploy sync and misreports budgets.
