@@ -1,6 +1,6 @@
 # TPC: the user's PC as a capped Clash fleet host
 
-> **Status 2026-10-11 (evening): back ON for simulation at the user's request.** Clash-SimKeepalive re-enabled. User said go all-in on simulation: user apps closed (Chrome, Steam, Riot/League, Roblox, emulators, Razer, MathWorks) and `%USERPROFILE%\.wslconfig` raised to memory=22GB, processors=15, swap=4GB (was 12GB/12/2GB); clash-sim now 15 thr / 21 GB. attv3-ractors / attv3-infer are being repointed to the plan-following CA-4 run (attacker owner) and re-enabled once healthy.
+> **Status 2026-10-11 (evening): back ON for simulation at the user's request.** Clash-SimKeepalive re-enabled. User said go all-in on simulation: user apps closed (Chrome, Steam, Riot/League, Roblox, emulators, Razer, MathWorks) and `%USERPROFILE%\.wslconfig` raised to memory=22GB, processors=15, swap=4GB (was 12GB/12/2GB); clash-sim now 15 thr / 21 GB. attv3-ractors drop-in `pf.conf`: 4 procs x 4 envs, CLASHLAB_ENGINE_CACHE_MB=150, CLASHLAB_ACTOR_HOST=TPC, MemoryMax=17G, on the plan-following run (checkout 0d77ad2); attv3-infer on the 5070 Ti; both units enabled. attv3-ractors / attv3-infer are being repointed to the plan-following CA-4 run (attacker owner) and re-enabled once healthy.
 
 
 Added 2026-10-10 (fleet utilisation). TPC is the user's own Windows PC, so everything on it is **capped and low
