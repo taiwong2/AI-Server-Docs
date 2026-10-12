@@ -21,7 +21,7 @@ conversation; the **backend** is chosen by the channel-name prefix:
 
 | Channel name      | Backend                                            |
 |-------------------|----------------------------------------------------|
-| `qwen-*` / `qwen` | Local Qwen agent (see below)                       |
+| `qwen-*` / `qwen` | Qwen agent on Flash-Next (AI Server 2 via AS1's relay :1240, since 2026-10-12) |
 | `claude-*`        | Headless Claude Code (`claude -p --resume`)        |
 | `main`            | Relay to the interactive terminal Claude session   |
 | anything else     | `DEFAULT_BACKEND` (default `claude`)               |
@@ -43,6 +43,11 @@ conversation; the **backend** is chosen by the channel-name prefix:
   the interactive session replies via `reply_main.py` -> `main-outbox\`.
 
 ## Qwen agent — the local model as an agent
+
+> **2026-10-12: AI Server 1 serves no LLM** (user decision: GPU training only). LM Studio, the model proxy and the
+> native hosts are off; every LLM consumer goes to Flash-Next on AI Server 2, AI Server 1 is **not** a fallback.
+> See [docs/24](24-as1-no-llm.md). The AI Server 1 LLM setup below is history.
+> `qwen-agent\config.py` now sends every model id to the relay (`http://127.0.0.1:1240/v1`).
 
 `C:\AI-Server\qwen-agent\` drives `qwen3.8-27b-uncensored` (via native llama.cpp) in an
 agentic tool loop: `run_shell` (PowerShell), `read_file`, `write_file`,
@@ -216,6 +221,9 @@ never triggers a backend. Posting *records* output; it does not ask a question.
 Do not build a loop that expects the bot to answer itself.
 
 ## Research jobs on the local model (added 2026-08-31)
+
+> 2026-10-12: `qwenresearch` runs on Flash-Next on AI Server 2 through the relay :1240 (default model
+> `qwen3.8-flash-next-uncensored`); its preflight waits up to 15 min for AI Server 2. [docs/24](24-as1-no-llm.md).
 
 `jobkinds\qwenresearch.ps1` plus `scripts\research_qwen.py` run the local Qwen
 through a deep-research topic and post the result to Discord — one topic per

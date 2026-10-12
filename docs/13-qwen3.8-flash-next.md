@@ -11,6 +11,10 @@ embedding table and a built-in MTP head. It is a **thinking model with vision**.
 > only the fallback (scripts while AI Server 2's LLM is off). See [docs/17](17-ai-server-2-llm.md) and
 > [docs/10](10-dsh-setup.md#ai-server-2-is-the-default-backend-llm-mode).
 
+> **2026-10-12: AI Server 1 serves no LLM** (user decision: GPU training only). LM Studio, the model proxy and the
+> native hosts are off; every LLM consumer goes to Flash-Next on AI Server 2, AI Server 1 is **not** a fallback.
+> See [docs/24](24-as1-no-llm.md). The AI Server 1 LLM setup below is history.
+
 ## What it is
 
 | | |

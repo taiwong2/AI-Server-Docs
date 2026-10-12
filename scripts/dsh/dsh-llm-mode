@@ -33,7 +33,7 @@ wake() {
 case "${1:-status}" in
   on)
     t0=$(date +%s)
-    wake || { rm -f "$MODE_F"; echo "dsh: AI Server 2 unreachable; this session uses AI Server 1's Flash-Next (fallback)" >&2; exit 1; }
+    wake || { rm -f "$MODE_F"; echo "dsh: AI Server 2 unreachable; the session's requests fail with 503 until it answers (AI Server 1 serves no LLM since 2026-10-12)" >&2; exit 1; }
     st=$(bounded 25 "${SSH[@]}" llm-mode status --json 2>/dev/null | tr -d '\n')
     if [ "$(printf '%s' "$st" | jget model)" = up ] && [ "$(printf '%s' "$st" | jget on)" = true ]; then
       bounded 20 "${SSH[@]}" llm-mode touch >/dev/null 2>&1; mark
@@ -51,7 +51,7 @@ case "${1:-status}" in
       else dim "  ${el}s: no answer from AI Server 2 (retrying)"; fi
       if [ "$el" -ge "$READY_S" ]; then
         rm -f "$MODE_F"
-        echo "dsh: Flash-Next on AI Server 2 not ready after ${el} s; starting on the fallback (AI Server 1). AI Server 2 keeps loading and takes over when up. Details: ssh $HOST llm-mode status" >&2
+        echo "dsh: Flash-Next on AI Server 2 not ready after ${el} s; starting dsh anyway; requests wait for AI Server 2 (the proxy waits up to 3 min, then 503). AI Server 1 serves no LLM. Details: ssh $HOST llm-mode status" >&2
         exit 1
       fi
     done ;;

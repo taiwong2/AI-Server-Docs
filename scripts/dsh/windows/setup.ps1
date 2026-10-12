@@ -2,7 +2,7 @@ $ErrorActionPreference = 'Stop'
 $R = "$env:USERPROFILE\deepseek-harness"
 $me = [Security.Principal.WindowsIdentity]::GetCurrent().Name
 # 1. keys: user-only ACL
-foreach ($k in "$env:USERPROFILE\.config\ai-server-2\llm_api_key", "$env:USERPROFILE\.config\ai-server\model_proxy_api_key") {
+foreach ($k in "$env:USERPROFILE\.config\ai-server-2\llm_api_key") {   # (AI Server 1 model-proxy key dropped 2026-10-12: AS1 serves no LLM)
   icacls $k /inheritance:r /grant:r "${me}:F" | Out-Null
   icacls $k | Select-Object -First 2
 }

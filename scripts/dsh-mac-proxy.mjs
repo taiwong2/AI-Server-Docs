@@ -1,31 +1,27 @@
 #!/usr/bin/env node
-// dsh-mac-proxy.mjs: the Mac DSH model proxy on 127.0.0.1:1235 (OpenAI-compatible).
+// dsh-mac-proxy.mjs: the DSH model proxy on 127.0.0.1:1235 (OpenAI-compatible). Source: AI-Server-Docs scripts/.
 //
-// Routes:
-//   flash-next                          main entry. AI Server 2 (Strix Halo, gufo) when its LLM is up or `dsh`
-//                                       turned its LLM mode on (then never AI Server 1); otherwise AI Server 1's
-//                                       qwen3.8-flash-next-uncensored (fallback).
-//   qwen3.8-flash-next-uncensored-strix AI Server 2 only (on demand). Wakes the box, waits for the model.
-//   anything else                       AI Server 1's model proxy (:1235), which starts/switches its native
-//                                       llama.cpp host and owns the GPU leases itself. Wakes AI Server 1.
-// AI Server 2 needs no GPU lease (one GPU, one model). While a request to it ran in the last 30 min the
-// proxy polls its /health every 5 min, which the box's power daemon counts as LLM activity (keeps it awake).
-//
+// Since 2026-10-12 every model id goes to Flash-Next on AI Server 2 (Strix Halo, gufo, 262k context). AI Server 1
+// (2x RTX 3090) is GPU training only and serves NO LLM: there is no AI Server 1 fallback any more.
+//   flash-next (default), qwen3.8-flash-next-uncensored[-strix|-1m], and any other id -> AI Server 2.
+// When AI Server 2's model is not up:
+//   - asleep: wake it (wake-ai-server-2, bounded), then continue;
+//   - a dsh terminal session is live (marker ~/.config/ai-server-2/llm-mode.json < 10 min, written by bin/dsh-llm-mode)
+//     or LLM mode is already on there: run `llm-mode on --detach` and wait up to 3 min for the model;
+//   - otherwise (scripts, no session): do not evict AI Server 2's Clash jobs; answer 503 saying how to turn it on.
+// Every failure is a clear 503 JSON error ("AI Server 2 ..."), never a silent reroute.
 // Secrets are read from files at request time, never stored here:
 //   ~/.config/ai-server-2/llm_api_key          AI Server 2 bearer key (also /etc/ai-server-2/llm.env on the box)
-//   ~/.config/ai-server/model_proxy_api_key    a key in AI Server 1's C:\AI-Server\scripts\.api-key
-// Env overrides: DSH_PROXY_PORT, AIS2_URL, AIS1_URL, AIS1_WAKE_URL, WAKE_AIS2 (path of wake-ai-server-2).
+// Env overrides: DSH_PROXY_PORT, AIS2_URL, WAKE_AIS2 (path of wake-ai-server-2), DSH_PROXY_READY_S.
 import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
-import { spawn } from 'node:child_process';
+import { spawn, execFile } from 'node:child_process';
 
 const PORT = Number(process.env.DSH_PROXY_PORT || 1235);
 const AIS2 = process.env.AIS2_URL || 'http://100.65.60.112:8080';
-const AIS1 = process.env.AIS1_URL || 'http://100.71.113.77:1235';
-const AIS1_WAKE = process.env.AIS1_WAKE_URL || 'https://wake-relay.tail215694.ts.net/wake';
 const WAKE_AIS2 = process.env.WAKE_AIS2 || path.join(os.homedir(), '.local/bin/wake-ai-server-2');
 const HOME = os.homedir();
 const STATE = path.join(HOME, '.config/ai-server-2/dsh-proxy-state.json');
@@ -34,7 +30,6 @@ const LOG = path.join(HOME, 'Library/Logs/dsh-mac-proxy.log');
 const MAIN_ID = 'flash-next';
 const STRIX_ID = 'qwen3.8-flash-next-uncensored-strix';
 const AIS2_MODEL = 'qwen3.8-flash-next-uncensored';
-const AIS1_FLASH = 'qwen3.8-flash-next-uncensored';
 
 const readKey = (p) => { try { return fs.readFileSync(path.join(HOME, p), 'utf8').trim(); } catch { return ''; } };
 const log = (...a) => { try { fs.appendFileSync(LOG, `${new Date().toISOString()} ${a.join(' ')}\n`); } catch {} };
@@ -66,7 +61,7 @@ function wakeAis2() {   // wake-ai-server-2 waits for ssh (up to AIS2_WAIT_S); t
   if (!wakingAis2) {
     log('waking AI Server 2');
     wakingAis2 = new Promise((res) => {
-      const p = spawn(WAKE_AIS2, ['-q'], { stdio: 'ignore', env: { ...process.env, AIS2_WAIT_S: '1500' } });
+      const p = spawn(WAKE_AIS2, ['-q'], { stdio: 'ignore', env: { ...process.env, AIS2_WAIT_S: '180' } });
       p.on('exit', (c) => { wakingAis2 = null; res(c === 0); });
       p.on('error', () => { wakingAis2 = null; res(false); });
     });
@@ -79,36 +74,53 @@ function wakeAis2() {   // wake-ai-server-2 waits for ssh (up to AIS2_WAIT_S); t
 // flash-next goes ONLY to AI Server 2 (waits for it, never falls back to AI Server 1).
 const MODE = path.join(HOME, '.config/ai-server-2/llm-mode.json');
 const llmModeOn = () => { try { return Date.now() - JSON.parse(fs.readFileSync(MODE, 'utf8')).ts < 10 * 60e3; } catch { return false; } };
-
-// Decide where flash-next goes right now.
-async function mainRoute() {
-  if (await ais2LlmUp()) return 'ais2';
-  if (llmModeOn()) return 'ais2-only';
-  const awake = await tcpUp(ais2Host, 22);
-  const s = loadState();
-  // asleep, and its LLM was serving in the last 2 days: wake it for next time, answer from AI Server 1 now
-  if (!awake && s.ais2LlmLastUp && Date.now() - s.ais2LlmLastUp < 2 * 86400e3) wakeAis2();
-  return 'ais1';
+// 2026-10-12: also ask AI Server 2 itself (~/clash-jobs/llm_mode.json "on"), cached 60 s, so a stale Mac marker (no dsh
+// session touching it) can never send flash-next to AI Server 1's 3090s (attacker learners) while LLM mode is on there.
+let ais2Mode = { t: 0, on: false };
+async function ais2ModeOn() {
+  if (Date.now() - ais2Mode.t < 60e3) return ais2Mode.on;
+  const on = await new Promise((resolve) => {
+    execFile('ssh', ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=6', 'ai-server-2', 'cat ~/clash-jobs/llm_mode.json'],
+      { timeout: 10000 }, (err, out) => { try { resolve(!err && JSON.parse(out).on === true); } catch { resolve(false); } });
+  });
+  ais2Mode = { t: Date.now(), on };
+  return on;
 }
 
-// Strix-only route: wake, then wait for the model (loads in ~30 s once llm.target is on).
+const READY_S = Number(process.env.DSH_PROXY_READY_S || 180);
+const ssh2 = (cmd, ms = 20000) => new Promise((resolve) => {
+  execFile('ssh', ['-n', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=6', 'ai-server-2', cmd], { timeout: ms },
+    (err, out, se) => resolve({ ok: !err, out: String(out || ''), err: String(se || err?.message || '') }));
+});
+
+// Make AI Server 2 serve. Returns null when the model answers, else the error message for a 503.
+let ensuring = null;
 async function ensureAis2() {
-  if (await ais2LlmUp()) return true;
-  if (!(await tcpUp(ais2Host, 22))) await wakeAis2();
-  for (let i = 0; i < 24; i++) { if (await ais2LlmUp()) return true; await sleep(5000); }
-  return false;
+  if (await ais2LlmUp()) return null;
+  if (!ensuring) ensuring = (async () => {
+    if (!(await tcpUp(ais2Host, 22))) {
+      log('AI Server 2 asleep: waking');
+      await wakeAis2();
+      if (!(await tcpUp(ais2Host, 22)))
+        return 'AI Server 2 is asleep or unreachable (wake sent; it also wakes by itself within 20 min). AI Server 1 serves no LLM. Retry in a few minutes';
+      if (await ais2LlmUp()) return null;
+    }
+    ais2Mode.t = 0;
+    const session = llmModeOn(), modeOn = await ais2ModeOn();
+    if (!session && !modeOn)
+      return 'AI Server 2 is not serving Flash-Next (LLM mode off) and AI Server 1 serves no LLM. Start it: run `dsh` in a terminal, or `ssh ai-server-2 llm-mode on` (moves AI Server 2 Clash jobs off)';
+    const r = await ssh2('llm-mode on --detach', 30000);
+    log(`llm-mode on --detach (${session ? 'dsh session' : 'mode on, model down'}): ${(r.out || r.err).trim().slice(0, 120)}`);
+    const t0 = Date.now();
+    while (Date.now() - t0 < READY_S * 1000) { if (await ais2LlmUp()) return null; await sleep(5000); }
+    const st = await ssh2('llm-mode status', 20000);
+    return `Flash-Next on AI Server 2 is not up after ${READY_S} s (LLM mode is on; it moves Clash jobs off, then loads ~60 s). ${st.out.split('\n')[0].slice(0, 160)}. Retry shortly`;
+  })().finally(() => { ensuring = null; });
+  return ensuring;
 }
 
 let lastAis2Use = 0;
 setInterval(() => { if (Date.now() - lastAis2Use < 30 * 60e3) ais2LlmUp(); }, 5 * 60e3).unref();
-
-async function ensureAis1() {
-  if (await tcpUp(new URL(AIS1).hostname, Number(new URL(AIS1).port || 80))) return true;
-  log('waking AI Server 1 via relay');
-  try { await fetch(AIS1_WAKE, { signal: AbortSignal.timeout(15000) }); } catch {}
-  for (let i = 0; i < 60; i++) { await sleep(5000); if (await tcpUp(new URL(AIS1).hostname, Number(new URL(AIS1).port))) return true; }
-  return false;
-}
 
 function send(res, code, obj) { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(obj)); }
 
@@ -125,16 +137,10 @@ async function forward(req, res, base, key, body) {
 }
 
 async function listModels() {
-  const data = [
-    { id: MAIN_ID, object: 'model', owned_by: 'dsh-mac-proxy', description: 'Flash-Next uncensored: AI Server 2 when on, else AI Server 1' },
-    { id: STRIX_ID, object: 'model', owned_by: 'ai-server-2', description: 'AI Server 2 gufo (on demand)', context_length: 262144 },
-  ];
-  try {
-    const r = await fetch(`${AIS1}/v1/models`, { headers: { Authorization: `Bearer ${readKey('.config/ai-server/model_proxy_api_key')}` }, signal: AbortSignal.timeout(5000) });
-    const j = await r.json();
-    for (const m of j.data || []) data.push({ ...m, owned_by: 'ai-server' });
-  } catch { for (const id of ['qwen3.8-27b-uncensored', AIS1_FLASH, `${AIS1_FLASH}-1m`]) data.push({ id, object: 'model', owned_by: 'ai-server' }); }
-  return { object: 'list', data };
+  return { object: 'list', data: [
+    { id: MAIN_ID, object: 'model', owned_by: 'ai-server-2', description: 'Qwen3.8-Flash-Next uncensored on AI Server 2 (gufo)', context_length: 262144 },
+    { id: STRIX_ID, object: 'model', owned_by: 'ai-server-2', description: 'same as flash-next', context_length: 262144 },
+  ] };
 }
 
 http.createServer(async (req, res) => {
@@ -145,20 +151,11 @@ http.createServer(async (req, res) => {
     let raw = ''; for await (const c of req) raw += c;
     const body = raw ? JSON.parse(raw) : {};
     const want = String(body.model || MAIN_ID);
-    let route = 'ais1';
-    if (want === STRIX_ID) route = 'ais2-only';
-    else if (want === MAIN_ID || want === 'default') route = await mainRoute();
-    if (route.startsWith('ais2')) {
-      if (route === 'ais2-only' && !(await ensureAis2()))   // LLM mode or the -strix id: AI Server 2 or an error
-        return send(res, 503, { error: { message: 'AI Server 2 LLM is not answering (LLM mode, or the -strix id: no fallback). Check: ssh ai-server-2 llm-mode status; start: llm-mode on', type: 'model_proxy_error' } });
-      lastAis2Use = Date.now();
-      log(`-> ais2 ${want}`);
-      return await forward(req, res, AIS2, readKey('.config/ai-server-2/llm_api_key'), { ...body, model: AIS2_MODEL });
-    }
-    if (!(await ensureAis1())) return send(res, 503, { error: { message: 'AI Server 1 did not wake', type: 'model_proxy_error' } });
-    const model = (want === MAIN_ID || want === 'default') ? AIS1_FLASH : want;
-    log(`-> ais1 ${model}`);
-    return await forward(req, res, AIS1, readKey('.config/ai-server/model_proxy_api_key'), { ...body, model });
+    const bad = await ensureAis2();
+    if (bad) { log(`503 ${want}: ${bad.slice(0, 100)}`); return send(res, 503, { error: { message: bad, type: 'model_proxy_error', code: 'ai_server_2_not_serving' } }); }
+    lastAis2Use = Date.now();
+    log(`-> ais2 ${want}`);
+    return await forward(req, res, AIS2, readKey('.config/ai-server-2/llm_api_key'), { ...body, model: AIS2_MODEL });
   } catch (e) {
     log('error', e?.message || e);
     if (!res.headersSent) send(res, 502, { error: { message: String(e?.message || e), type: 'model_proxy_error' } });

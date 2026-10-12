@@ -4,7 +4,7 @@ How to install the `dsh` client so that typing `dsh` behaves as it does on the u
 **LLM mode**, which moves AI Server 2's Clash jobs off and loads Flash-Next. It runs the session against `flash-next`
 on AI Server 2, and AI Server 2 unloads the model by itself after 30 idle minutes. How it works:
 [docs/10](10-dsh-setup.md#ai-server-2-is-the-default-backend-llm-mode) and [docs/17](17-ai-server-2-llm.md).
-The client runs no model. All inference happens on AI Server 2 (AI Server 1 only as a fallback for scripts).
+The client runs no model. All inference happens on AI Server 2. AI Server 1 serves no LLM since 2026-10-12 ([docs/24](24-as1-no-llm.md)), so there is no fallback.
 
 Tested 2026-10-12: a fresh install into an empty `HOME` on the Mac (macOS 26, node 22), steps 1-6 below; Windows on
 TPC (see [Windows](#windows-tpc)).
@@ -58,7 +58,7 @@ another machine. On Linux without zsh: install zsh, or port the 30-line wrapper 
 | file (mode 600) | what | where the value comes from |
 |---|---|---|
 | `~/.config/ai-server-2/llm_api_key` | AI Server 2 gufo bearer key | `/etc/ai-server-2/llm.env` on the box (`LLM_API_KEY=`, root 600), or copy the file from the Mac |
-| `~/.config/ai-server/model_proxy_api_key` | AI Server 1 model-proxy key (fallback) | a dedicated line in AI Server 1's `C:\AI-Server\scripts\.api-key` (add one per machine so it can be revoked) |
+| ~~`~/.config/ai-server/model_proxy_api_key`~~ | not needed since 2026-10-12 (no AI Server 1 fallback) | a dedicated line in AI Server 1's `C:\AI-Server\scripts\.api-key` (add one per machine so it can be revoked) |
 
 Copy them file to file (`scp mac:.config/ai-server-2/llm_api_key ~/.config/ai-server-2/ && chmod 600 ...`). Do not
 echo them. The proxy reads them at request time.
@@ -95,7 +95,7 @@ only to AI Server 2. The wrapper touches the box every 5 min during the session.
 
 ```bash
 curl -s 127.0.0.1:1235/health                  # {"status":"ok","ais2_llm":true|false}
-curl -s 127.0.0.1:1235/v1/models | head -c 300 # flash-next, ...-strix, AI Server 1 ids
+curl -s 127.0.0.1:1235/v1/models | head -c 300 # flash-next, ...-strix
 ssh ai-server-2 llm-mode status                # "LLM mode on|off; model up|inactive; ..."
 DSH_NO_LLM_MODE=1 dsh --version                # 0.1.5-rc.1
 dsh "Reply with exactly one word: pong"        # in a terminal: "dsh: Flash-Next on AI Server 2 ready (N s)", then pong
@@ -103,8 +103,8 @@ grep -- '-> ais' ~/Library/Logs/dsh-mac-proxy.log | tail -3     # "-> ais2 flash
 ```
 
 The first `dsh` after the box was idle normally takes 1-2 min (job moves, then a ~60 s model load), and the hook waits
-at most 3 min (`DSH_READY_S`) with a progress line every 10 s. After that it starts the session on the AI Server 1
-fallback, and AI Server 2 takes over once its model is up. Later launches start at once while the model stays loaded.
+at most 3 min (`DSH_READY_S`) with a progress line every 10 s. After that it starts the session anyway; its requests
+wait in the proxy (3 min, then a clear 503). Later launches start at once while the model stays loaded.
 
 ## Windows (TPC)
 
@@ -143,7 +143,7 @@ Windows gotchas found in the install:
   every ssh call in `dsh-llm-mode.ps1` uses `-n`, runs through `Start-Process` with output in temp files, and is killed
   after 20-30 s. `on` starts the box side detached (`llm-mode on --detach`) and polls `llm-mode status --json` every
   10 s, printing a progress line each time. After 3 min (`DSH_READY_S`) it prints a status line, drops the LLM-mode
-  marker and starts dsh on the AI Server 1 fallback. AI Server 2 takes over once its model is up. The Mac hook works
+  marker and starts dsh; requests then wait for AI Server 2 in the proxy (no AI Server 1 fallback since 2026-10-12). The Mac hook works
   the same way.
 - No `wake-ai-server-2` on Windows. The hook sends the magic packet itself when the PC is on the box's LAN
   (192.168.10.x), then retries ssh. The proxy's spawn of the missing helper fails with a handled `ENOENT`.

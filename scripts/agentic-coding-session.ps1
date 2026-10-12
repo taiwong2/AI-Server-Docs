@@ -1,7 +1,7 @@
 <#
   GPU handoff for the local DeepSeek Harness.
-  Acquire stops the known AlphaClash training supervisors, takes one lease per
-  GPU for LM Studio/Qwen, and holds those leases while the caller stays alive.
+  Acquire stops the known AlphaClash training supervisors, takes one lease for
+  LM Studio/Qwen, and holds that lease while the caller keeps this process alive.
   Release unloads Qwen and starts the existing server-side resume task.
 #>
 param(
@@ -10,6 +10,8 @@ param(
     [int] $Vram = 22000,
     [switch] $Hold
 )
+. 'C:\AI-Server\scripts\as1-llm-policy.ps1'
+if ($Action -eq 'Acquire') { Assert-AS1LlmAllowed 'agentic-coding-session Acquire (LM Studio Qwen)' }
 
 $ErrorActionPreference = 'Stop'
 $root = 'C:\AI-Server'
@@ -60,6 +62,7 @@ if ($Action -eq 'Acquire') {
             if ($Hold) { while ((Read-State).active) { Start-Sleep -Seconds 10 } }
             exit 0
         }
+        # State without its lease is recoverable: the broker already reaped it.
         $old.active = $false
         Write-State $old
     }
@@ -94,8 +97,7 @@ if ($Action -eq 'Acquire') {
     $record = [pscustomobject]@{ active = $true; leaseIds = @($leaseIds); leaseId = $leaseIds[0]; gpu = '0,1'; vram = $Vram; savedTraining = @($saved); startedAt = (Get-Date).ToString('o') }
     Write-State $record
     try {
-        # Use every available GPU allocation across the visible GPUs. LM
-        # Studio enables Flash Attention, GPU KV cache, and MTP for this GGUF.
+        # Keep the cold-start path aligned with the tested proxy profile.
         $previousErrorAction = $ErrorActionPreference
         $ErrorActionPreference = 'Continue'
         $loadOutput = (& $lms load $qwen --gpu max --context-length 262144 --parallel 1 --identifier $qwen -y 2>&1 | Out-String)
@@ -106,7 +108,7 @@ if ($Action -eq 'Acquire') {
         if ($Hold) { while ((Read-State).active) { Start-Sleep -Seconds 10 } }
         exit 0
     } catch {
-        try { & $python $lease release $record.leaseId | Out-Null } catch { }
+        foreach ($leaseId in @($record.leaseIds)) { try { & $python $lease release $leaseId | Out-Null } catch { } }
         $record.active = $false
         Write-State $record
         throw

@@ -11,6 +11,27 @@ Strix-Halo-only HIP engine. It is set up, verified, benchmarked, and **switched 
 > `systemctl enable --now llm.target` by hand. Use `llm-mode on|off|status`. See
 > [LLM mode](#llm-mode-2026-10-12) below and [docs/10](10-dsh-setup.md#ai-server-2-is-the-default-backend-llm-mode).
 
+## AI Server 1's consumers and the idle rules (2026-10-12)
+
+AI Server 1 serves no LLM any more ([docs/24](24-as1-no-llm.md)). Its consumers (Antoine's :1234, the Discord
+`qwen-*` agent, `qwenresearch`, `kp-reviews`) reach this box through AI Server 1's relay, which runs
+`llm-mode on --detach` / `llm-mode status --json` here with AI Server 1's forced-command key
+(`/usr/local/bin/clashjobs-ssh`: also allows `llm-mode touch`, never `off` or `move`; `LLMMODE_BY=ai-server-1-relay`).
+dsh clients no longer fall back to AI Server 1 either.
+
+Idle accounting (`llmmode.py` `last_llm_request` / `idle_s`), fixed after AS2 sat in LLM mode with idle 0.1 min and 6
+frozen jobs:
+- counted as use: a completed POST with status 2xx and `prompt_tokens >= 64` or `generated_tokens > 4`, or a received
+  POST of >= 2 KB (a big prompt still in prefill);
+- not counted: `/health`, `/v1/models`, 1-token ready/pong probes, 4xx (401, `context_length_exceeded`), and the
+  cache `WARN ... tokens=` lines (before the fix every one of those counted, since the match was `POST|completion|prompt|tokens`);
+- `llm-mode touch` (an open dsh window, every 5 min) counts only until `TOUCH_HOLD_MIN` (60, env
+  `LLM_TOUCH_HOLD_MIN`) after the last real request or model-up. The case: a TPC dsh window (`dsh-llm-mode.ps1
+  keepalive`, 100.99.161.31) held LLM mode from 03:56 UTC by touches alone. Its next request turns LLM mode on again
+  through the dsh proxy.
+Find what keeps the model busy: `ss -tn state established '( sport = :8080 )'` (peers) and
+`journalctl -u llm-gufo | grep event=completed` (sizes).
+
 ## What runs
 
 | | |

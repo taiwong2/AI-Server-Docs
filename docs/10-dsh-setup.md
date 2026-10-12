@@ -3,7 +3,8 @@
 > **Default backend: AI Server 2 (2026-10-12).** `dsh` uses the model `flash-next`, served by **AI Server 2's
 > Flash-Next** (Strix Halo, gufo, 262k, MTP). Typing `dsh` in a terminal turns on AI Server 2's **LLM mode**: its
 > Clash jobs are moved off, the model loads, and the session runs on it. The box unloads after 30 min idle.
-> **AI Server 1 is only the fallback**, for scripts (no terminal) while AI Server 2's LLM is off. See
+> **AI Server 1 serves no LLM since 2026-10-12** ([docs/24](24-as1-no-llm.md)): there is no AI Server 1 fallback; every
+> model id goes to AI Server 2 and a failure is a clear 503. See
 > [AI Server 2 is the default backend](#ai-server-2-is-the-default-backend-llm-mode) below,
 > [docs/17](17-ai-server-2-llm.md), and the install guide [docs/21](21-dsh-install.md).
 > The Windows sections further down describe the older AI Server 1-only workstation setup (kept for reference).
@@ -411,7 +412,7 @@ and [dual-3090 Qwen reports](https://www.reddit.com/r/LocalLLM/comments/1voyohk/
 ## AI Server 2 is the default backend (LLM mode)
 
 Since 2026-10-12, `flash-next` on AI Server 2 is the default for every dsh client (Mac, TPC, any new install: see
-[docs/21](21-dsh-install.md)). AI Server 1's Flash-Next is only the fallback.
+[docs/21](21-dsh-install.md)). Since 2026-10-12 AI Server 1 serves no LLM at all ([docs/24](24-as1-no-llm.md)): no fallback.
 
 ### What typing `dsh` does
 
@@ -423,19 +424,23 @@ Since 2026-10-12, `flash-next` on AI Server 2 is the default for every dsh clien
      test prompt;
    - starts `llm-mode on --detach` on the box and polls `llm-mode status --json` every 10 s. Every ssh call is
      bounded (20-30 s). It prints a dimmed progress line each poll and `dsh: Flash-Next on AI Server 2 ready (N s)`
-     when the model answers. After **3 min** (`DSH_READY_S`) it says so and starts the session on the AI Server 1
-     fallback anyway. If LLM mode was already on, it just prints `dsh: Flash-Next on AI Server 2 (LLM mode on since ...)`;
+     when the model answers. After **3 min** (`DSH_READY_S`) it says so and starts the session anyway; its requests
+     then wait for AI Server 2 in the proxy (3 min, then 503). If LLM mode was already on, it just prints `dsh: Flash-Next on AI Server 2 (LLM mode on since ...)`;
    - writes `~/.config/ai-server-2/llm-mode.json`. While it is under 10 min old, the proxy routes `flash-next`
-     **only** to AI Server 2. It waits up to 2 min, then returns 503, and never falls back to AI Server 1.
+     to AI Server 2 and, when the model is down, the proxy itself runs `llm-mode on --detach` and waits up to 3 min, then 503.
 2. The session runs (default profile `headless` when arguments are given). Every 5 min the wrapper sends
    `llm-mode touch`.
 3. On exit the model **stays loaded**. The box's watcher (`llmmode-idle` user unit) runs `llm-mode off` after
-   **30 min** with no dsh session (touch) and no request to the model. `off` stops `llm.target`, thaws the frozen
+   **30 min** with no real request to the model. A touch from an open dsh window counts only until 60 min after the
+   last real request (`TOUCH_HOLD_MIN`), so an idle open window cannot hold AI Server 2 forever; the window's next
+   request turns LLM mode on again through the proxy. Probes (prompt < 64 tokens and <= 4 generated), 4xx
+   responses, `/health` and `/v1/models` never count as use (2026-10-12). `off` stops `llm.target`, thaws the frozen
    jobs, and releases the held queue (parked jobs start) and the power hold. Jobs that moved to AI Server 1
    clash-sim stay there.
 
 Scripts and agents (no TTY), or `DSH_NO_LLM_MODE=1`, skip the hook. `flash-next` then goes to AI Server 2 if its
-`/health` answers, else to AI Server 1.
+`/health` answers. If it does not, the proxy does not evict AI Server 2's Clash jobs for a script: it answers 503
+("LLM mode off ... run `dsh` in a terminal, or `ssh ai-server-2 llm-mode on`"). AI Server 1 is never used.
 
 While LLM mode is on, AI Server 2 still runs Clash jobs beside the model. A held job starts when its `--mem-gb`
 (its hard cgroup MemoryMax) fits under the worst-case headroom minus `llm_mem_reserve_gb` (8 GB in
@@ -461,16 +466,14 @@ Client side: `dsh-llm-mode on|touch|status|off` (in `<root>/bin`). Log on the bo
 
 | model id | goes to |
 |---|---|
-| `flash-next` (default) | AI Server 2 `http://100.65.60.112:8080` if its `/health` answers. LLM-mode marker fresh: AI Server 2 only (waits, then 503). Otherwise AI Server 1 `http://100.71.113.77:1235` as `qwen3.8-flash-next-uncensored` (fallback; it wakes AI Server 2 in the background if its LLM served within 2 days) |
-| `qwen3.8-flash-next-uncensored-strix` | AI Server 2 only: wakes the box, waits up to 2 min, otherwise 503 |
-| anything else | AI Server 1's model proxy (starts/switches its native host, takes GPU leases; wakes AI Server 1 through the relay) |
+| every id (`flash-next` default, `-strix`, old AS1 ids) | AI Server 2 `http://100.65.60.112:8080` as `qwen3.8-flash-next-uncensored`. Model down: asleep -> wake (3 min); a dsh session marker fresh or LLM mode on -> `llm-mode on --detach`, wait 3 min (`DSH_PROXY_READY_S`); otherwise 503 with how to start it. Never AI Server 1 (2026-10-12) |
 
 | | |
 |---|---|
 | Proxy | `<root>/bin/dsh-mac-proxy.mjs` (source: [`scripts/dsh-mac-proxy.mjs`](../scripts/dsh-mac-proxy.mjs)), Node 22, no dependencies |
 | Service | Mac: LaunchAgent `com.tai.dsh-mac-proxy` (`RunAtLoad`, `KeepAlive`), log `~/Library/Logs/dsh-mac-proxy.log`. Linux and Windows: [docs/21](21-dsh-install.md) |
 | DSH config | `home/cordis.patch.yml` (source `scripts/dsh/cordis.patch.yml`): provider `tai-ai-server` -> `127.0.0.1:1235/v1`, default `flash-next` |
-| Keys (never in a repo) | `~/.config/ai-server-2/llm_api_key` (= `/etc/ai-server-2/llm.env` on the box) and `~/.config/ai-server/model_proxy_api_key` (a dedicated line in AI Server 1's `C:\AI-Server\scripts\.api-key`; delete it to revoke) |
+| Keys (never in a repo) | `~/.config/ai-server-2/llm_api_key` (= `/etc/ai-server-2/llm.env` on the box) (the AI Server 1 model-proxy key is no longer used) |
 
 AI Server 2 needs **no GPU lease** (one GPU, one model).
 
@@ -484,11 +487,11 @@ and returned 503 rather than using AI Server 1. Idle path: with a 2 min idle lim
 
 | symptom | check / fix |
 |---|---|
-| `dsh` waits at "loading Flash-Next" (at most 3 min, then fallback) | `ssh ai-server-2 llm-mode status`: MemAvailable must reach 104 GiB. A job that was not moved holds memory: `llm-mode move ID` (or freeze/requeue it with `clashjobs freeze|requeue ID`) |
-| `dsh: AI Server 2 unreachable` | asleep and not waking (RTC heartbeat <= 20 min, [docs/16](16-ai-server-2-wake-and-power.md)) or tailnet down; dsh then uses AI Server 1 |
-| 503 "AI Server 2 LLM is not answering" | the LLM-mode marker is fresh but the model is down: `ssh ai-server-2 llm-mode on`, or `rm ~/.config/ai-server-2/llm-mode.json` to allow the AI Server 1 fallback |
+| `dsh` waits at "loading Flash-Next" (at most 3 min, then starts; requests wait in the proxy) | `ssh ai-server-2 llm-mode status`: MemAvailable must reach 104 GiB. A job that was not moved holds memory: `llm-mode move ID` (or freeze/requeue it with `clashjobs freeze|requeue ID`) |
+| `dsh: AI Server 2 unreachable` | asleep and not waking (RTC heartbeat <= 20 min, [docs/16](16-ai-server-2-wake-and-power.md)) or tailnet down; requests get 503 until it answers (no AI Server 1 fallback) |
+| 503 "AI Server 2 is not serving Flash-Next" | LLM mode off and no dsh session: run `dsh` in a terminal or `ssh ai-server-2 llm-mode on`. "not up after 180 s": `ssh ai-server-2 llm-mode status` |
 | 401 from AI Server 2 | `~/.config/ai-server-2/llm_api_key` differs from `/etc/ai-server-2/llm.env` |
-| model stays loaded for hours | `systemctl --user status llmmode-idle` on the box (the watcher); `llm-mode off` unloads at once |
+| model stays loaded for hours | real requests keep it (gufo journal: `event=completed` with real prompt sizes; peers: `ss -tn sport = :8080`). An open dsh window holds it at most 60 min past the last request. `systemctl --user status llmmode-idle` (the watcher); `llm-mode off` unloads at once |
 | a job failed to move | `llm-mode status` shows `ERROR`; the job was frozen instead (no work lost). Fix, then `llm-mode move ID` |
 
 ```bash

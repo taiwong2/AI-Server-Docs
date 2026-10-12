@@ -5,7 +5,7 @@ rem  - `--profile headless` is the default when arguments are given (except --he
 rem  - typed in a terminal (stdin and stdout a console) and DSH_NO_LLM_MODE unset: turn on AI Server 2's LLM mode first
 rem    (bin\dsh-llm-mode.ps1 on), keep it alive with a touch every 5 min while dsh runs, one final touch at exit.
 rem    Scripts/agents (redirected I/O) and DSH_NO_LLM_MODE=1 skip that; the proxy on 127.0.0.1:1235 still routes
-rem    flash-next to AI Server 2 when it is up, else AI Server 1.
+rem    every model to AI Server 2 (AI Server 1 serves no LLM since 2026-10-12).
 setlocal
 set "DSH_ROOT=%USERPROFILE%\deepseek-harness"
 set "DSH_HOME=%DSH_ROOT%\home"

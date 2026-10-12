@@ -19,7 +19,7 @@ esac
 # LLM mode (2026-10-11): typed in a terminal, dsh first turns on AI Server 2's LLM mode (its Clash jobs move off, the
 # Flash-Next model loads) and keeps it alive while the session runs; the box unloads after 30 min with no session and
 # no requests. Scripts / agents (no TTY) and DSH_NO_LLM_MODE=1 keep the old behaviour: the proxy (127.0.0.1:1235)
-# routes flash-next to AI Server 2 when it is up, else AI Server 1.
+# routes every model to AI Server 2 (AI Server 1 serves no LLM since 2026-10-12).
 if [[ -t 0 && -t 1 && -z "${DSH_NO_LLM_MODE:-}" && -x "$HOOK" ]]; then
   "$HOOK" on || true
   ( while sleep 300; do "$HOOK" touch; done ) &!

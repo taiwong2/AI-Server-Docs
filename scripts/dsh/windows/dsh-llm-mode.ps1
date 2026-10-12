@@ -78,7 +78,7 @@ function Wake {
 function On {
   $t0 = Get-Date
   if (-not (Wake)) { Remove-Item -LiteralPath $ModeF -ErrorAction SilentlyContinue
-    Say "dsh: AI Server 2 unreachable; this session uses AI Server 1's Flash-Next (fallback)"; return 1 }
+    Say "dsh: AI Server 2 unreachable; the session's requests fail with 503 until it answers (AI Server 1 serves no LLM since 2026-10-12)"; return 1 }
   $st = Status
   if ($st -and $st.model -eq 'up' -and $st.on -eq $true) {
     [void](SshRun @('llm-mode', 'touch') 20); Mark
@@ -97,7 +97,7 @@ function On {
     else { Dim "  ${el}s: no answer from AI Server 2 (retrying)" }
     if ($el -ge $ReadyS) {
       Remove-Item -LiteralPath $ModeF -ErrorAction SilentlyContinue
-      Say "dsh: Flash-Next on AI Server 2 not ready after $el s; starting on the fallback (AI Server 1). AI Server 2 keeps loading and takes over when up. Details: ssh $HostAlias llm-mode status"
+      Say "dsh: Flash-Next on AI Server 2 not ready after $el s; starting dsh anyway; requests wait for AI Server 2 (the proxy waits up to 3 min, then 503). AI Server 1 serves no LLM. Details: ssh $HostAlias llm-mode status"
       return 1
     }
   }

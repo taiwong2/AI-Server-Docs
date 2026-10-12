@@ -10,10 +10,19 @@ on 2026-09-25; time limits lifted 2026-09-29.
   Python, git and build tools are installed. You are user `antoine`, without root: ask
   the overseer for apt packages. Build whatever you like here, including your own
   relay, APIs and pipelines.
-- **LM Studio**, which is OpenAI-compatible:
-  - From inside your machine: `http://127.0.0.1:1234/v1`
+- **An LLM endpoint**, OpenAI-compatible (since 2026-10-12 it is the uncensored Qwen3.8-Flash-Next on Tai's second
+  server; LM Studio and the 27B on this box are gone, the 3090s here are for training):
+  - From inside your machine: `http://127.0.0.1:1234/v1` (`/v1/chat/completions`, `/v1/completions`, `/v1/responses`, `/v1/models`)
   - From pp-vps or your Mac over the tailnet: `http://100.71.113.77:1234/v1`
-  - Use model `qwen3.8-27b`, one request at a time, batch work only. Back off on errors.
+  - No API key needed. Any model id works and is answered by `qwen3.8-flash-next-uncensored`. Thinking is on by
+    default; send `"reasoning_effort": "none"` to turn it off.
+  - **Context is 262,144 tokens.** A longer request fails at once with `context_length_exceeded`: compact or trim the
+    conversation, do not resend it. 3 such errors in 10 min block the endpoint for 15 min, and the same prompt sent
+    more than 3 times in 10 min is refused.
+  - Limits: at most 8,192 output tokens per request (larger `max_tokens` is lowered), one request at a time,
+    6 per minute, 60 per hour, 400 per day, 3 h of model time per day. `GET /status` shows today's use.
+  - The model is loaded on demand. When it is off, the first request turns it on and you may get
+    `503` with `Retry-After` for 1-3 minutes (longer if that server is asleep). Honour `Retry-After` and `429`.
 - **SSH into your machine** with `ssh -p 2222 antoine@100.71.113.77`. It is key-only
   (your key is already installed). TCP forwarding works, e.g. `ssh -p 2222 -L 20001:127.0.0.1:20001 ...`
   to reach one of your own services.
@@ -42,13 +51,13 @@ machine starts, is still the place to (re)launch long-running services.
 
 - Both RTX 3090s are visible with no reservation (`~/.gpu-env` no longer hides them).
 - Tai's own jobs share both cards, so check `nvidia-smi` before a big job and prefer the
-  card with free VRAM. LM Studio also lives on these cards.
+  card with free VRAM. No LLM runs on these cards any more; they are busy with Tai's training.
 
 ## Network from inside your machine
 
 - The public internet is open.
 - These are blocked: Tai's home network, the tailnet, and services that run only on the
-  Windows host. LM Studio on 1234 is the exception.
+  Windows host. The LLM endpoint on 1234 is the exception.
 - For your own local services, use ports **20000-29999** on 127.0.0.1. Other loopback
   ports are blocked.
 

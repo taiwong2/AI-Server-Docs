@@ -291,3 +291,20 @@ property `driveway_account` in `%LOCALAPPDATA%\Google\DriveFS\<account id>\metad
 2/3/1: field 7 = limit, 9 = used, 8 = remaining). It was 10 TiB with 0.53 TB used. `model_archive.py status` prints
 it. What does run out is C:: anything written to G: waits in the cache on C: until uploaded, so pace big copies by
 C: free space and the upload backlog ([Model archive](23-model-archive.md)).
+
+## AI Server 2 never leaves LLM mode, idle stays near 0 (2026-10-12)
+
+Symptom: `llm-mode status` says idle 0.1 min for hours, Clash jobs stay frozen. Causes found: (1) `last_llm_request`
+counted every gufo journal line matching `POST|completion|prompt|tokens`, including the cache `WARN ... tokens=` lines
+and 1-token probes; (2) an open dsh window's keepalive (`llm-mode touch` every 5 min) reset idle forever. Fixed in
+ClashEngineering `ops/strixhalo/llmmode.py` (real-use filter, `TOUCH_HOLD_MIN` 60). To see who is really using it:
+`ss -tn state established '( sport = :8080 )'` on the box (peer IPs: 100.71.113.77 = AI Server 1's relay,
+100.99.161.31 = TPC, 100.x Mac) and `journalctl -u llm-gufo | grep event=completed` (prompt sizes). After deploying a
+change to `llmmode.py`, restart the watcher (`systemctl --user stop llmmode-idle`, then `systemd-run --user --collect
+--unit=llmmode-idle /usr/bin/python3 ~/ClashEngineering/ops/strixhalo/llmmode.py watch`): it keeps the old code loaded.
+
+## A zsh loop over "$FILES" copied nothing (2026-10-12)
+
+`for f in $FILES` in zsh does not word-split a string variable, so a deploy loop ran once with the whole list as one
+name, scp failed, and the server-side backups were skipped. Use `bash -c '...'` or a zsh array (`files=(a b c)`) for
+deploy loops, and check that the backups exist before overwriting.

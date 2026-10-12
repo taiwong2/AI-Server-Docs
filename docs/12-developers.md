@@ -27,9 +27,11 @@ with the same text:
   50 GB disk. Both 3090s are visible and CUDA works. Python, git and build tools
   are installed. You are user `antoine`, without root. Ask the administrator for
   apt packages.
-- **LM Studio**, which is OpenAI-compatible. Inside your machine it is at
-  `http://127.0.0.1:1234/v1`. Over the tailnet it is at
-  `http://100.71.113.77:1234/v1`. Use model `qwen3.8-27b`, one request at a time.
+- **An LLM endpoint**, OpenAI-compatible, at the same URLs as the old LM Studio: inside his machine
+  `http://127.0.0.1:1234/v1`, over the tailnet `http://100.71.113.77:1234/v1`. Since 2026-10-12 it is AI Server 1's
+  relay to the uncensored **Flash-Next on AI Server 2** (any model id; 262,144-token context; no key). Caps: 8,192
+  output tokens per request, one at a time, 6/min, 60/h, 400/day, 3 h of model time a day; over-long or repeated
+  prompts fail at once. LM Studio and the 27B are gone from this box. Details: [docs/24](24-as1-no-llm.md).
 - **SSH** with `ssh -p 2222 antoine@100.71.113.77`. It is key-only, always up,
   and TCP forwarding is allowed.
 - **Port 8899** on `100.71.113.77` forwards into your machine, for your own
@@ -46,7 +48,7 @@ with the same text:
 ### Network inside your machine
 
 The public internet is open. These are blocked: the LAN, the tailnet, and
-services that run only on the Windows host (LM Studio on 1234 is the exception).
+services that run only on the Windows host (the LLM endpoint on 1234 is the exception).
 Use loopback ports **20000–29999** for your own services.
 
 ### Asking the administrator
@@ -265,6 +267,19 @@ wsl --terminate pp-antoine      # hard stop of the environment
 To add another developer: add them to `roles.json`, create a distro with
 `C:\wsl\pp-setup\setup.sh` (change the user name), and add an entry to `DEV_ENVS`
 in `config.py`.
+
+### 2026-10-12 (later): no LLM on AI Server 1; Antoine's endpoint is a relay to AI Server 2
+
+User decision: AI Server 1 serves no LLM. LM Studio was quit and its autostart, local service and JIT loading
+switched off ([docs/24](24-as1-no-llm.md)). `:1234` is now `scripts\as2_llm_relay.py` (task `\AI-LLMRelay`, profile
+`dev`): it forwards to Flash-Next on AI Server 2, injects AI Server 2's key server-side (never visible in
+pp-antoine), switches AI Server 2's LLM mode on per request when the model is off, and enforces the caps above, a
+context guard (`context_length_exceeded` at once) and a repeated-prompt loop breaker. **The wall is unchanged:** no
+root, the same `pp-boot.sh` firewall (loopback 1234 still the only host port), the same sharee rule (1234, 2222,
+8899), no route to the Gmail MCPs, no route to AI Server 2. `~/README.md`, `DEVELOPER-GUIDE.md`, the administrator's
+`inference-status` and standing policy were updated (backups `*.bak-20261012-nollm`, `/root/antoine-README.md.bak-20261012`).
+Verified from inside pp-antoine as `antoine`: chat and streaming answered on both URLs; 1240, 8001 and AI Server 2
+:8080 were refused; no key in his environment. Antoine was not emailed about the change.
 
 ### 2026-10-12: LM Studio moved off GPU1 (attacker training)
 

@@ -29,7 +29,7 @@ Windows utility — Secure Boot plus HVCI block the drivers those tools need.
 | Python (system) | 3.12, plus Miniconda3 |
 | GPU env | conda env **`ai`** — `C:\Users\poopl\miniconda3\envs\ai\python.exe` |
 | CUDA | 12.4 |
-| Inference | native llama.cpp host (port 1236). The default dsh backend is now AI Server 2's Flash-Next ([docs/17](17-ai-server-2-llm.md)); this host is the fallback |
+| Inference | **none on this box since 2026-10-12** (GPU training only). LLM = Flash-Next on AI Server 2 ([docs/17](17-ai-server-2-llm.md)); AS1's relay `as2_llm_relay.py` (:1234 Antoine, :1240 local) forwards there ([docs/24](24-as1-no-llm.md)) |
 | Streaming | Sunshine (Moonlight clients) |
 | Remote | OpenSSH (22), Tailscale |
 
