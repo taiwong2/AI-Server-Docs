@@ -2,8 +2,9 @@
 // dsh-mac-proxy.mjs: the Mac DSH model proxy on 127.0.0.1:1235 (OpenAI-compatible).
 //
 // Routes:
-//   flash-next                          main entry. AI Server 2 (Strix Halo, gufo) when its LLM is up,
-//                                       otherwise AI Server 1's qwen3.8-flash-next-uncensored (fallback).
+//   flash-next                          main entry. AI Server 2 (Strix Halo, gufo) when its LLM is up or `dsh`
+//                                       turned its LLM mode on (then never AI Server 1); otherwise AI Server 1's
+//                                       qwen3.8-flash-next-uncensored (fallback).
 //   qwen3.8-flash-next-uncensored-strix AI Server 2 only (on demand). Wakes the box, waits for the model.
 //   anything else                       AI Server 1's model proxy (:1235), which starts/switches its native
 //                                       llama.cpp host and owns the GPU leases itself. Wakes AI Server 1.
@@ -73,9 +74,16 @@ function wakeAis2() {   // wake-ai-server-2 waits for ssh (up to AIS2_WAIT_S); t
   return wakingAis2;
 }
 
+// LLM mode (2026-10-11): `dsh` (bin/dsh-llm-mode) writes ~/.config/ai-server-2/llm-mode.json {"ts": ms} when AI
+// Server 2's LLM mode is on and refreshes it every 5 min while a session lives. While it is fresh (< 10 min; dsh touches every 5),
+// flash-next goes ONLY to AI Server 2 (waits for it, never falls back to AI Server 1).
+const MODE = path.join(HOME, '.config/ai-server-2/llm-mode.json');
+const llmModeOn = () => { try { return Date.now() - JSON.parse(fs.readFileSync(MODE, 'utf8')).ts < 10 * 60e3; } catch { return false; } };
+
 // Decide where flash-next goes right now.
 async function mainRoute() {
   if (await ais2LlmUp()) return 'ais2';
+  if (llmModeOn()) return 'ais2-only';
   const awake = await tcpUp(ais2Host, 22);
   const s = loadState();
   // asleep, and its LLM was serving in the last 2 days: wake it for next time, answer from AI Server 1 now
@@ -141,8 +149,8 @@ http.createServer(async (req, res) => {
     if (want === STRIX_ID) route = 'ais2-only';
     else if (want === MAIN_ID || want === 'default') route = await mainRoute();
     if (route.startsWith('ais2')) {
-      if (route === 'ais2-only' && !(await ensureAis2()))
-        return send(res, 503, { error: { message: 'AI Server 2 LLM is off. Turn it on: ssh ai-server-2 sudo systemctl enable --now llm.target', type: 'model_proxy_error' } });
+      if (route === 'ais2-only' && !(await ensureAis2()))   // LLM mode or the -strix id: AI Server 2 or an error
+        return send(res, 503, { error: { message: 'AI Server 2 LLM is not answering (LLM mode, or the -strix id: no fallback). Check: ssh ai-server-2 llm-mode status; start: llm-mode on', type: 'model_proxy_error' } });
       lastAis2Use = Date.now();
       log(`-> ais2 ${want}`);
       return await forward(req, res, AIS2, readKey('.config/ai-server-2/llm_api_key'), { ...body, model: AIS2_MODEL });

@@ -45,9 +45,10 @@ live on **AI Server 2** — see [AI Server 2](docs/15-ai-server-2-battle-box.md)
 | Fix something that is broken | [Troubleshooting](docs/08-troubleshooting.md) |
 | Chat with it (Discord), run the local model as an agent | [Agents and chat](docs/09-agents-and-chat.md) |
 | Work on the box as a developer (Antoine), or manage developer access | [Developers](docs/12-developers.md) |
-| Install the DeepSeek Harness on another device | [DeepSeek Harness setup](docs/10-dsh-setup.md) |
+| Install the DeepSeek Harness (`dsh`) on another device (Mac, Linux, Windows) | [dsh install guide](docs/21-dsh-install.md) |
+| What `dsh` does (AI Server 2 default backend, LLM mode, idle unload), routing, troubleshooting | [DeepSeek Harness setup](docs/10-dsh-setup.md) |
 | Write a story, poem or lyrics with Gemma 4 | [Creative writing](docs/11-creative-writing.md) |
-| Use the Flash-Next LLM on AI Server 2 (Strix Halo, gufo), or turn it on/off | [AI Server 2 (Strix Halo) LLM](docs/17-ai-server-2-llm.md) |
+| Use the Flash-Next LLM on AI Server 2 (Strix Halo, gufo; the dsh default), or turn it on/off (`llm-mode`) | [AI Server 2 (Strix Halo) LLM](docs/17-ai-server-2-llm.md) |
 | Use AI Server 2 (the Clash battle box: engine, league battle workers) | [AI Server 2 battle box](docs/15-ai-server-2-battle-box.md) |
 | Wake AI Server 2, see why it is (not) asleep, keep it awake | [AI Server 2 wake and power](docs/16-ai-server-2-wake-and-power.md) |
 | Train designer / BaseFinder models on Colab so the 3090s stay on the attacker | [Colab burst GPU](docs/18-colab-burst-gpu.md) |

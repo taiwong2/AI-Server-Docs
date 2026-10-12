@@ -4,12 +4,12 @@ AI Server 2 (Minisforum MS-S1 MAX: Ryzen AI Max+ 395, Radeon 8060S `gfx1151`, 12
 [docs/15](15-ai-server-2-battle-box.md)) can serve the uncensored **Qwen3.8-Flash-Next** on **gufo**, the
 Strix-Halo-only HIP engine. It is set up, verified, benchmarked, and **switched off** at the moment.
 
-> **Status (2026-10-10): OFF.** The user's decision: the box goes full send on the battle simulator.
-> `llm.target` is disabled, so nothing loads at boot. The weights stay on disk, sha256-verified.
-> Bring it back: `ssh ai-server-2 sudo systemctl enable --now llm.target`. A memory gate refuses to load
-> unless MemAvailable >= 104 GiB, so first stop the training/battle jobs.
-> Off again: `sudo systemctl disable --now llm.target`.
-> While it is off, DSH's main entry `flash-next` falls back to AI Server 1 ([docs/10](10-dsh-setup.md)).
+> **Status (2026-10-12): on demand through LLM mode; the default dsh backend.** Typing `dsh` on a client runs
+> `llm-mode on` here: the Clash jobs move off (or are frozen or parked) by lane policy, then the model loads and is
+> verified. `llm-mode off` (or the 30 min idle watcher) unloads it and gives the box back to clashjobs. `llm.target`
+> stays **disabled**: it is only started, never enabled, so a reboot comes back as the CPU box. Do not use
+> `systemctl enable --now llm.target` by hand. Use `llm-mode on|off|status`. See
+> [LLM mode](#llm-mode-2026-10-12) below and [docs/10](10-dsh-setup.md#ai-server-2-is-the-default-backend-llm-mode).
 
 ## What runs
 
@@ -51,7 +51,52 @@ out of memory, and the kernel killed the attacker training run. Guards added sin
 - `ExecStartPre=/srv/llm/memcheck.sh`: no load unless MemAvailable >= 104 GiB (`Restart=always` retries every 20 s).
 - `/srv/llm/testrun.sh` (temporary test servers) refuses while clashjobs has running jobs.
 
-Rule: **no LLM load on this box while training runs.**
+Rule: **no LLM load on this box while training runs**, except through `llm-mode on`, which first moves, freezes or
+parks every job ([LLM mode](#llm-mode-2026-10-12)).
+
+## LLM mode (2026-10-12)
+
+`llm-mode` (ClashEngineering `ops/strixhalo/llmmode.py`, installed as `/usr/local/bin/llm-mode`) switches the box
+between the Clash CPU box and the LLM server. The user OK'd loading the model this way on 2026-10-11, with
+"any runs offloaded to Colab and other devices (not TPC)".
+
+**on:**
+1. `~/clash-jobs/llm_mode.json {"on": true}`. The clashjobs runner then starts only lanes whose policy says `new: stay`
+   (drivers, report waiters, Colab drivers) and 0-CPU clashsim proxies. A submission whose lane says
+   `new: clashsim`, or that passes `--portable`, is routed to AI Server 1 clash-sim (`ops/aiserver/clashsim.py`;
+   same paths there, `--push` / `--pull` for inputs and outputs). It is refused with a message when it names a `~/`
+   path that cannot be carried over, so nothing fails silently there. Anything else is queued as `held:llm`.
+2. Every running job gets its lane's `running` action from `ops/strixhalo/llm_lanes.json`:
+
+   | action | meaning | lanes (2026-10-12) |
+   |---|---|---|
+   | `stay` | keep running (tiny drivers) | attv3-pf-offsync, `*rep`, `colab*`, 0-CPU proxies |
+   | `pf-hub` | attacker pf coordinator: SIGTERM (final checkpoint), run dir rsynced, resumed on clash-sim with the restart checklist (code, env, AS1 learner restart, clash-sim units) | attv3-rl |
+   | `clashsim` | stop, then rerun the same command on clash-sim (it resumes from its own outputs) | planexit* (teacher gen corpus) |
+   | `requeue` | stop and queue again here; reruns after off (AS2-only measurements) | engspeed*, ca4cost* |
+   | `freeze` | cgroup-freeze in place (no CPU, memory kept), thawed by off. Used for jobs with no checkpoint and AS2-bound paths | dsg*, pe-sur, render*, **default for unknown lanes** |
+   | `stop` | stateless helper of something that moved | attv3-ractors-as2 |
+
+   A failed move falls back to `freeze` (logged with `ERROR`; retry with `llm-mode move ID`). Nothing is plainly killed.
+3. `keepawake-llmmode` (user unit) keeps `ai-power` from suspending.
+4. `sudo systemctl start llm.target` (memcheck: >= 104 GiB MemAvailable), then a `/health` check and a test chat
+   (`reasoning_effort: none`). The 91 GiB model leaves ~24 GiB for the OS and the frozen jobs.
+
+**off:** stop `llm.target`, thaw frozen jobs, clear the hold (held jobs start), stop the keep-awake. Moved jobs stay
+where they run.
+
+**Idle:** `llmmode-idle` (transient user unit started by `on`) turns LLM mode off after 30 min (`LLM_IDLE_MIN`) with
+no `llm-mode touch` (dsh sends one every 5 min) and no non-health request in the llm-gufo journal.
+
+**Key:** llm-mode runs as `taiwong`, so it reads the key from `~/.config/ai-server-2/llm_api_key` (600). On first use
+it copies the key there from `/etc/ai-server-2/llm.env` through `sudo -n`.
+
+**First live run (2026-10-11 22:04 UTC):** pf was stopped cleanly at its checkpoint 5,353,149 (27 s). The AS1 learner
+was restarted at the new commit (113 s), and the hub was resumed on clash-sim 292 s after the stop. planexit moved
+to clash-sim. 4 jobs were frozen, 2 requeued. The model loaded and answered. Two bugs from that run are fixed: a
+`~/` path parser split, and the root-only key that made every probe get 401, so the idle watcher never armed.
+The pf restart on clash-sim did not stay up (the session running it died). Recovering it is owned by the attacker
+workstream, not by llm-mode.
 
 ## Benchmarks (2026-10-10, 262k context, MTP on unless noted; greedy, thinking off, prose unless noted)
 
@@ -121,8 +166,9 @@ Copies (no secrets) in this repo: `scripts/ais2-llm/`.
 | Power | `ai-power` counts LLM connections/log lines in the last 15 min as busy, and `llm-model-fetch.service` as a keep-awake unit ([docs/16](16-ai-server-2-wake-and-power.md)) |
 
 ```bash
-ssh ai-server-2 sudo systemctl enable --now llm.target    # on (loads in ~25 s once memory allows)
-ssh ai-server-2 sudo systemctl disable --now llm.target   # off, and not at boot
+ssh ai-server-2 llm-mode on                               # jobs off the box, model on, verified (what dsh runs)
+ssh ai-server-2 llm-mode off                              # model off, jobs back
+ssh ai-server-2 llm-mode status
 ssh ai-server-2 journalctl -u llm-gufo -f                 # load_completed / listening / requests
 K=$(cat ~/.config/ai-server-2/llm_api_key)
 curl -s http://ai-server-2:8080/v1/models -H "Authorization: Bearer $K"

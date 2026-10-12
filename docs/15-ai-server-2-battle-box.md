@@ -5,7 +5,7 @@ battle engine (x86_64 build, native runner), the league's battle workers, the Cl
 builder. The GPU side (designer proposals and fine-tunes, the attacker's PPO learner) stays on this handbook's AI
 server and is reached through ClashLink and the job queue. The same box can also run an LLM server (gufo + Flash-Next on
 :8080, ~91 GiB when loaded). It is **off** since 2026-10-10 so the simulator gets the whole box; see
-[docs/17](17-ai-server-2-llm.md). Never load it while training runs (it OOM-killed att-ppo-f once).
+[docs/17](17-ai-server-2-llm.md). Never load it by hand while jobs run (it OOM-killed att-ppo-f once). `llm-mode on` (run by `dsh`) first moves, freezes or parks every job by lane policy (`ops/strixhalo/llm_lanes.json`). While LLM mode is on, `clashjobs list` shows `frozen` / `held:llm` and `clashjobs submit --portable` routes a job to AI Server 1 clash-sim.
 
 | | |
 |---|---|

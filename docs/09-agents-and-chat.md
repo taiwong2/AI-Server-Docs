@@ -59,6 +59,11 @@ agentic tool loop: `run_shell` (PowerShell), `read_file`, `write_file`,
 
 ## DeepSeek Harness — local coding path (added 2026-09-14)
 
+> **2026-10-12: the default backend is AI Server 2.** `dsh` now runs on `flash-next` served by AI Server 2 (Strix
+> Halo, gufo), turning its LLM mode on as needed. The AI Server 1 workstation path below is the older setup and the
+> fallback. Current behaviour: [docs/10](10-dsh-setup.md#ai-server-2-is-the-default-backend-llm-mode). Install on a new
+> machine: [docs/21](21-dsh-install.md).
+
 > **Qwen3.8-Flash-Next (uncensored)** — a 125B/6B-active MoE thinking+vision model
 > — was added 2026-09-28 as `qwen3.8-flash-next-uncensored` (and a 1M-context
 > `-1m` id). It runs on a purpose-built expert-cache llama.cpp binary at ~36 tok/s.

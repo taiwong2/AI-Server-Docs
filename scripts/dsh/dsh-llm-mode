@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# dsh-llm-mode: the client side of AI Server 2's LLM mode (ClashEngineering ops/strixhalo/llmmode.py), used by `dsh`.
+#
+#   dsh-llm-mode on       wake AI Server 2 if asleep, `llm-mode on` there (moves its Clash jobs off, loads Flash-Next),
+#                         wait until the model answers; prints one status line (progress lines dimmed)
+#   dsh-llm-mode touch    "a dsh session is alive": resets the 30 min idle unload timer on the box
+#   dsh-llm-mode status   llm-mode status on the box
+#   dsh-llm-mode off      unload now and give the box back to the Clash jobs
+# Env: AIS2_HOST (ssh alias, default ai-server-2), WAKE_AIS2 (wake helper; default wake-ai-server-2 next to this or on
+# PATH). Works on macOS and Linux (bash + ssh). Never prints the API key; the model is reached through dsh-mac-proxy.
+set -uo pipefail
+HOST=${AIS2_HOST:-ai-server-2}
+SSH=(ssh -o BatchMode=yes -o ConnectTimeout=8 -o ServerAliveInterval=30 "$HOST")
+MODE_F=$HOME/.config/ai-server-2/llm-mode.json      # read by dsh-mac-proxy: fresh = route flash-next only to AS2
+mark() { mkdir -p "$(dirname "$MODE_F")"; printf '{"ts": %s000}\n' "$(date +%s)" > "$MODE_F"; }
+dim() { if [ -t 2 ]; then printf '\033[2m%s\033[0m\n' "$*" >&2; else printf '%s\n' "$*" >&2; fi; }
+
+wake() {
+  "${SSH[@]}" true 2>/dev/null && return 0
+  local w=${WAKE_AIS2:-}
+  [ -z "$w" ] && for c in "$(dirname "$0")/wake-ai-server-2" "$HOME/.local/bin/wake-ai-server-2" "$(command -v wake-ai-server-2 2>/dev/null)"; do
+    [ -n "$c" ] && [ -x "$c" ] && { w=$c; break; }; done
+  dim "dsh: AI Server 2 is asleep, waking it (can take a few minutes)"
+  if [ -n "$w" ]; then AIS2_WAIT_S=${AIS2_WAIT_S:-1500} "$w" -q; else
+    for _ in $(seq 1 150); do "${SSH[@]}" true 2>/dev/null && return 0; sleep 10; done; return 1; fi
+}
+
+case "${1:-status}" in
+  on)
+    wake || { echo "dsh: AI Server 2 unreachable; dsh will use AI Server 1's Flash-Next (proxy fallback)" >&2; exit 1; }
+    st=$("${SSH[@]}" llm-mode status --json 2>/dev/null)
+    if printf '%s' "$st" | grep -q '"model": "up"' && printf '%s' "$st" | grep -q '"on": true'; then
+      "${SSH[@]}" llm-mode touch >/dev/null 2>&1; mark
+      echo "dsh: Flash-Next on AI Server 2 (LLM mode on since $(printf '%s' "$st" | sed -n 's/.*"since": "\([^"]*\)".*/\1/p'))" >&2
+      exit 0
+    fi
+    dim "dsh: LLM mode on AI Server 2: moving its Clash jobs off and loading Flash-Next (first start ~2-10 min)"
+    t0=$(date +%s); last=""
+    "${SSH[@]}" -t -q llm-mode on 2>&1 | tr -d '\r' | while IFS= read -r ln; do dim "  $ln"; last=$ln; done
+    rc=${PIPESTATUS[0]}
+    if [ "$rc" -ne 0 ]; then echo "dsh: llm-mode on failed (rc $rc); dsh falls back to AI Server 1. Details: ssh $HOST llm-mode status" >&2; exit 1; fi
+    mark
+    echo "dsh: Flash-Next on AI Server 2 ready ($(( $(date +%s) - t0 )) s)" >&2 ;;
+  touch) "${SSH[@]}" llm-mode touch >/dev/null 2>&1 && mark ;;
+  status) "${SSH[@]}" llm-mode status ;;
+  off) rm -f "$MODE_F"; "${SSH[@]}" llm-mode off ;;
+  *) echo "usage: dsh-llm-mode on|touch|status|off" >&2; exit 2 ;;
+esac
