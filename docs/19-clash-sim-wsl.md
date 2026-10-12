@@ -165,3 +165,8 @@ steps. Now `pf_learners.json` runs pf uncapped on GPU1 (Vram 22000) and has core
 on GPU0. attv3-ractors-core and attv3-infer-core are stopped and disabled, and `zz-split.conf` is removed (pf 3x10 envs).
 The aborted core run was moved to `C:\WSL\runs\aborted-20261011-1952-attv3-ca4-rl-core`; `C:\WSL\core-sim.stop` is set.
 Restarting the arm needs ~21 GB free on GPU0, which means LM Studio off GPU0 (CPU-only) or a separate GPU.
+
+**2026-10-12 ~07:40 UTC: core-reach arm relaunched.** LM Studio left AS1 (LLM serving moved to AS2). The new run is
+`C:\WSL\runs\20261012-0037-attv3-ca4-rl-core`, initialised from pf 5,847,518 (`C:\WSL\core_init`; resume file set). Its
+learner runs on GPU0 :8894 (Vram 21000, uncapped; GPU0 is at ~23.3 GB with attv3-infer, offeval and attv3-infer-core).
+Actors are attv3-ractors-core 3x10, next to pf's attv3-ractors 3x10. pf is unchanged.
