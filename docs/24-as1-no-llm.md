@@ -16,11 +16,12 @@ All LLM serving is **Flash-Next on AI Server 2** (gufo, 262,144-token context, o
 | Flash-Next benches | tasks `AI-FlashCacheSweep`, `AI-FlashCtxCache`, `AI-FlashFinalBench`, `AI-FlashOptCache`, `AI-FlashOptSweep`, `AI-FlashVerify` disabled; jobkinds `flashbench`, `flashtune`, `flashtune2` and `tmp\flash\tune.ps1` refuse |
 | `load-model.ps1`, `agentic-coding-session.ps1 Acquire` | refuse |
 | idle monitor | never reloads LM Studio models (`Invoke-LmStudioRestore` is a no-op; `state\lmstudio-restore.json` removed) |
+| `lms` CLI | `C:\Users\poopl\.lmstudio\bin\lms.exe` renamed to `lms.exe.disabled-20261012-as1-nollm`: **any** `lms` call (even `lms ps` or `lms unload`) wakes the LM Studio service. That is how LM Studio came back once during the change (an old `llama-host.ps1` cleanup ran `lms server start`); `llama-host.ps1`'s `LmStudio-Server start` is now a no-op without the override too |
 | Ollama | was not installed |
 
 The guard is `scripts\as1-llm-policy.ps1` (`Assert-AS1LlmAllowed`), dot-sourced by each of those scripts. Refusals
 are logged to `logs\as1-llm-policy.log`. **Override** (only when the user asks for an LLM on AI Server 1): create
-`C:\AI-Server\state\as1-llm.allowed` with who asked and why, and delete it afterwards. Backups of every changed file:
+`C:\AI-Server\state\as1-llm.allowed` with who asked and why (and rename `lms.exe` back if LM Studio is wanted); undo both afterwards. Backups of every changed file:
 `*.bak-20261012-nollm` beside it, plus `state\backup-20261012-as1-nollm\` (LM Studio configs, Run key, restore list,
 kp-reviews config).
 

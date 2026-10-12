@@ -84,7 +84,8 @@ function Alive([int]$processId) { try { $p=Get-Process -Id $processId -ErrorActi
 # One owner of the GPUs: while a native session runs, LM Studio's own server (:1234,
 # JIT loading on) is stopped so nothing can load a second model onto the same cards;
 # it comes back when the session ends. The :1235 proxy enforces the same rule.
-function LmStudio-Server([string]$verb) { & cmd.exe /c ""C:\Users\poopl\.lmstudio\bin\lms.exe" server $verb >nul 2>&1" }
+# 2026-10-12: never (re)start LM Studio unless state\as1-llm.allowed (AS1 serves no LLM; this used to relaunch it on Stop).
+function LmStudio-Server([string]$verb) { if ($verb -eq 'start' -and -not (Test-AS1LlmAllowed)) { return }; & cmd.exe /c ""C:\Users\poopl\.lmstudio\bin\lms.exe" server $verb >nul 2>&1" }
 function Release-Leases($s) { foreach($id in @($s.leaseIds)) { & $python $lease release $id | Out-Null } }
 function Stop-Training {
   @(Get-CimInstance Win32_Process | Where-Object {$_.CommandLine -and $_.CommandLine -match 'supervise-train\.ps1'}) | ForEach-Object { & taskkill.exe /PID ([int]$_.ProcessId) /T /F | Out-Null }

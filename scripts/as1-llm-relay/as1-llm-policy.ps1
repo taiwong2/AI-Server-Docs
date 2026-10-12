@@ -5,7 +5,9 @@
 # LLM work goes to Flash-Next on AI Server 2 through the relay (scripts\as2_llm_relay.py, task \AI-LLMRelay):
 #   AS1 consumers  http://127.0.0.1:1240/v1      Antoine / pp-antoine  http://127.0.0.1:1234/v1
 # Override ONLY when the user explicitly asks for an LLM on AS1: create C:\AI-Server\state\as1-llm.allowed (write who
-# asked and why in it), and delete it afterwards.
+# asked and why in it), rename C:\Users\poopl\.lmstudio\bin\lms.exe.disabled-20261012-as1-nollm back to lms.exe if LM Studio
+# is wanted, and undo both afterwards. lms.exe was renamed because ANY lms call (even `lms ps` / `lms unload`) wakes the
+# LM Studio service ("Waking up LM Studio service..."), which is how it came back once on 2026-10-12.
 $script:AS1LlmMarker = 'C:\AI-Server\state\as1-llm.allowed'
 function Test-AS1LlmAllowed { return (Test-Path $script:AS1LlmMarker) }
 function Assert-AS1LlmAllowed([string]$What = 'this LLM action') {
