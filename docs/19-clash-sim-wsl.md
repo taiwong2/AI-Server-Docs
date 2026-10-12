@@ -130,3 +130,31 @@ last WSL start. PPO is retired (attacker = CA-4 only), so `schtasks /change /tn 
 `C:\WSL\clash-sim.stop` written, the actor and its `hub-out.sock` / `learner-8894.sock` socat relays killed. Do not
 re-enable for attacker work: CA-4 actors run as `attv3-ractors`, and clash-sim batch work goes through `clashsim submit`
 (clash-jobs.service). After a `wsl --shutdown`, do NOT restart AI-ClashSim.
+
+**2026-10-12 ~02:45 UTC: pf attacker runs on clash-sim as systemd units; core-reach A/B arm next to it.**
+pf (`20261011-0359-attv3-ca4-rl-pf`) had been down since 00:56 UTC. The llm-mode move ran its coordinator as a clashsim job,
+which crashed after every first update because the rsync left out `battles/` (fixed in CE 08ad8d8). Then the AS1 learner
+hit MaxLife, and no one resubmitted it: clash-sim has no ssh, so there is no `--learner-autostart`. It now runs as:
+* `attv3-pfhub.service`: the pf coordinator, `/opt/clash/attv3_units/pf_hub.sh` (supervise `--resume`, code
+  `/home/taiwong/ce_pf4` = 9a3e9870a2, shared engine image, cache 32 MB). Restart=on-failure, MemoryMax 20G. It is a
+  clash-jobs `guard_units` entry (guard peak 16 GB), so the runner holds back jobs that would starve it. Hub
+  `unix:/run/clash/hub.sock`; learner through `/run/clash/learner-8891.sock` (attv3_hubrelay.sh). It is not a clashjob:
+  the runner's memory admission could not fit it next to the sftv5 evals (headroom 2.6 GB).
+* `attv3-pfwatch.timer` (every 3 min) -> `/opt/clash/attv3_units/pf_watch.py`: if no metrics row arrives for more than
+  10 min while the learner answers, it restarts attv3-pfhub (a second stall within 30 min also restarts attv3-ractors).
+  It starts the hub if the unit is down, and copies a checkpoint to `C:\Users\poopl\attv3_offeval_pf_r2\inbox` every
+  250k steps (AS2's attv3-pf-offsync now sees a stale run dir). Log `/var/log/attv3-pfwatch.log`; disable with
+  `touch /opt/clash/pf_watch.disabled`.
+* Windows task `\AI-PfLearnerKeeper` (SYSTEM, every 2 min) -> `C:\AI-Server\scripts\pf_learner_keeper.py`: keeps one
+  `clashlearner` job queued or running per entry of `C:\AI-Server\state\pf_learners.json`: pf lane attv3-learner :8891
+  (GPU1, ce_pf4, Vram 14000; it really uses ~21 GB) and core lane attv3-learner-core :8894 (GPU0, Vram 10000). To retire
+  an arm, set `"enabled": false`. Log `logs\pf-learner-keeper.log`.
+* The core-reach treatment (`/mnt/c/WSL/runs/20261011-1952-attv3-ca4-rl-core`, init pf 5,353,149, same code and env as
+  pf) runs as the S4U task `\AI-ClashSim-Core` (`C:\WSL\core_sim_run.sh`; resume file `C:\WSL\core-sim.resume`; stop
+  `C:\WSL\core-sim.stop`). Hub `unix:/run/clash/core_hub.sock` (Windows :8896 relay, tag:colab ACL); its HMAC key
+  `C:\WSL\core_actor_key` was renewed 2026-10-12. The Colab actors were not launched: every Colab CPU slot was taken. So
+  clash-sim is split 50/50: `attv3-ractors` (pf) and `attv3-ractors-core` + `attv3-infer-core`
+  (`/run/clash/attv3_infer_core.sock`, GPU0; the shared infer server holds one model only) each run 3 procs x 11 envs
+  (drop-in `attv3-ractors.service.d/zz-split.conf`). When the A/B ends, stop the core units, remove zz-split.conf, and
+  give pf the envs back.
+* clash-jobs `config.json`: `urgent_cpu_budget` 2 -> 6. Source: ClashEngineering `ops/aiserver/pf/`, `ops/aiserver/core_reach/`.

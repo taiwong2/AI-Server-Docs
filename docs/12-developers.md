@@ -265,3 +265,18 @@ wsl --terminate pp-antoine      # hard stop of the environment
 To add another developer: add them to `roles.json`, create a distro with
 `C:\wsl\pp-setup\setup.sh` (change the user name), and add an entry to `DEV_ENVS`
 in `config.py`.
+
+### 2026-10-12: LM Studio moved off GPU1 (attacker training)
+
+At 23:23 UTC on 2026-10-11, Antoine's agent (through his pp-antoine relay to 127.0.0.1:1234, sharee 100.84.100.97)
+JIT-loaded `qwen3.8-27b-uncensored` (Q6_K, 262k ctx) across both 3090s. It ran in a loop: ~636k-token requests
+truncated to ~140k and fully re-processed every ~3 min. Tai: attacker training must own GPU1. No request was killed.
+Between two requests, the 27B's LM Studio defaults were changed to **GPU0 only**:
+- `user-concrete-model-default-config\orcarouter\...Q6_K.gguf.json`: `disabledGpus [1]`, offloadRatio 0.3, KV cache in RAM;
+- `hardware-config.json`: `disabledGpus [1]`.
+
+A load now takes ~11.6 GB of GPU0 and nothing on GPU1. Backups are `*.bak-20261011-193015`.
+
+The first rewrite had a UTF-8 BOM. LM Studio ignored the file and reloaded with ctx 4096, so one of his requests
+(19:31 local) likely failed. Write these files without a BOM (`[IO.File]::WriteAllText` with `UTF8Encoding($false)`).
+The model was then unloaded while idle (his next request reloads it on GPU0).
