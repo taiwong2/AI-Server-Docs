@@ -106,3 +106,17 @@ while Claude was blocked.
 Limits: the hook's exact input for background agents is not documented (it logs raw input to `hooks.log`; the sweeper
 covers it either way). A forked `resume-session` and you typing in the same conversation can both run; `aq cancel` it
 if you come back first (or it is marked superseded automatically if you resumed before it started).
+
+## Session budget: handoffs instead of huge resumes (2026-10-12)
+
+The user's rule is to reset sessions regularly, hand off between them, and keep workflows small.
+- **The runner never resumes a session whose transcript is over 3 MB** (`AQ_SESSION_MAX_MB`). This covers a task's own
+  earlier attempt and `resume-session` tasks. The task starts a fresh session instead. Its prompt carries a HANDOFF
+  header: the old transcript path (read with `aq transcript ... --last 40`), the task's `aq note`s, and the original task.
+- **The PREAMBLE tells every queued agent to work in chunks of about 90 min.** At a clean point it writes `aq note`
+  done / next / state, queues the rest as a fresh `aq add` with the handoff in the prompt, and ends. Its subagents
+  return short handoffs, not logs.
+- **Dead background agents** were already resumed fresh (`resume-agent` tasks read notes and the transcript tail).
+- Backup of the runner before the change: `~/.claude/agent-queue/bin/aq.bak-20261012-handoff`. Restart the runner after
+  editing it: `launchctl kickstart -k gui/$(id -u)/com.taiwong.agent-queue`, and kill a leftover `aq run` python if
+  it reports "a runner is already running".
