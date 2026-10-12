@@ -421,8 +421,10 @@ Since 2026-10-12, `flash-next` on AI Server 2 is the default for every dsh clien
      freezes every running job by its lane policy (`ops/strixhalo/llm_lanes.json`), holds `ai-power` awake
      (`keepawake-llmmode`), starts `llm.target` once MemAvailable >= 104 GiB, and waits until the model answers a
      test prompt;
-   - prints one status line, e.g. `dsh: Flash-Next on AI Server 2 ready (312 s)` (progress lines dimmed).
-     If LLM mode was already on: `dsh: Flash-Next on AI Server 2 (LLM mode on since ...)`;
+   - starts `llm-mode on --detach` on the box and polls `llm-mode status --json` every 10 s. Every ssh call is
+     bounded (20-30 s). It prints a dimmed progress line each poll and `dsh: Flash-Next on AI Server 2 ready (N s)`
+     when the model answers. After **3 min** (`DSH_READY_S`) it says so and starts the session on the AI Server 1
+     fallback anyway. If LLM mode was already on, it just prints `dsh: Flash-Next on AI Server 2 (LLM mode on since ...)`;
    - writes `~/.config/ai-server-2/llm-mode.json`. While it is under 10 min old, the proxy routes `flash-next`
      **only** to AI Server 2. It waits up to 2 min, then returns 503, and never falls back to AI Server 1.
 2. The session runs (default profile `headless` when arguments are given). Every 5 min the wrapper sends
@@ -434,6 +436,12 @@ Since 2026-10-12, `flash-next` on AI Server 2 is the default for every dsh clien
 
 Scripts and agents (no TTY), or `DSH_NO_LLM_MODE=1`, skip the hook. `flash-next` then goes to AI Server 2 if its
 `/health` answers, else to AI Server 1.
+
+While LLM mode is on, AI Server 2 still runs Clash jobs beside the model. A held job starts when its `--mem-gb`
+(its hard cgroup MemoryMax) fits under the worst-case headroom minus `llm_mem_reserve_gb` (8 GB in
+`~/clash-jobs/config.json`). That is re-checked every scheduler tick, and the watcher thaws frozen jobs the same
+way. The live budget is the last line of `clashjobs status`. With the model resident there is about 23 GB
+MemAvailable in all, so memory, not CPU, is what limits the jobs.
 
 ### llm-mode commands (on AI Server 2: `ssh ai-server-2 llm-mode ...`)
 
@@ -476,7 +484,7 @@ and returned 503 rather than using AI Server 1. Idle path: with a 2 min idle lim
 
 | symptom | check / fix |
 |---|---|
-| `dsh` hangs at "loading Flash-Next" | `ssh ai-server-2 llm-mode status`: MemAvailable must reach 104 GiB. A job that was not moved holds memory: `llm-mode move ID` (or freeze/requeue it with `clashjobs freeze|requeue ID`) |
+| `dsh` waits at "loading Flash-Next" (at most 3 min, then fallback) | `ssh ai-server-2 llm-mode status`: MemAvailable must reach 104 GiB. A job that was not moved holds memory: `llm-mode move ID` (or freeze/requeue it with `clashjobs freeze|requeue ID`) |
 | `dsh: AI Server 2 unreachable` | asleep and not waking (RTC heartbeat <= 20 min, [docs/16](16-ai-server-2-wake-and-power.md)) or tailnet down; dsh then uses AI Server 1 |
 | 503 "AI Server 2 LLM is not answering" | the LLM-mode marker is fresh but the model is down: `ssh ai-server-2 llm-mode on`, or `rm ~/.config/ai-server-2/llm-mode.json` to allow the AI Server 1 fallback |
 | 401 from AI Server 2 | `~/.config/ai-server-2/llm_api_key` differs from `/etc/ai-server-2/llm.env` |

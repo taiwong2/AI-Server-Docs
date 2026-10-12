@@ -102,9 +102,50 @@ dsh "Reply with exactly one word: pong"        # in a terminal: "dsh: Flash-Next
 grep -- '-> ais' ~/Library/Logs/dsh-mac-proxy.log | tail -3     # "-> ais2 flash-next"
 ```
 
-The first `dsh` after the box was idle takes 2-10 min (job moves plus a ~30 s model load). Later ones start at once,
-as long as the model is still loaded.
+The first `dsh` after the box was idle normally takes 1-2 min (job moves, then a ~60 s model load), and the hook waits
+at most 3 min (`DSH_READY_S`) with a progress line every 10 s. After that it starts the session on the AI Server 1
+fallback, and AI Server 2 takes over once its model is up. Later launches start at once while the model stays loaded.
 
 ## Windows (TPC)
 
-See below (filled from the TPC install).
+Installed and verified on TPC (Windows 11, user `Tai`) on 2026-10-12. It is client only: TPC runs no model and no Clash
+work. Sources: [`scripts/dsh/windows/`](../scripts/dsh/windows/) (`dsh.cmd`, `dsh-llm-mode.ps1` + `.cmd`,
+`dsh-proxy.vbs`, `setup.ps1`).
+
+1. **Prerequisites:** Node 22 (MSI; TPC has 22.23.2 / npm 10.9.8), the Windows OpenSSH client, and Tailscale. Append the
+   machine's `~\.ssh\id_ed25519.pub` to `taiwong@ai-server-2:~/.ssh/authorized_keys` (TPC's line is commented
+   `tpc-dsh-client`).
+2. **Harness:** `%USERPROFILE%\deepseek-harness`: copy `package.json` + `package-lock.json` from the Mac, run
+   `npm ci`, then copy `home\settings.yaml`, `home\cordis.patch.yml` and the profiles' small config files
+   (`cordis*.yml`, `package.json`, `pnpm-workspace.yaml`). Do not copy sessions, storages or credentials.
+   `bin\dsh-proxy.mjs` is `scripts/dsh-mac-proxy.mjs` with the log moved to `%LOCALAPPDATA%\dsh\dsh-proxy.log`
+   (change the `LOG` line).
+3. **Keys:** `%USERPROFILE%\.config\ai-server-2\llm_api_key` and `%USERPROFILE%\.config\ai-server\model_proxy_api_key`,
+   copied file to file. Restrict them to the user: `icacls <file> /inheritance:r /grant:r "<DOMAIN\user>:F"`.
+4. **ssh alias** `ai-server-2` in `%USERPROFILE%\.ssh\config` (HostName 100.65.60.112, User taiwong, IdentityFile
+   ~/.ssh/id_ed25519).
+5. **Wrappers on PATH:** copy `dsh.cmd` and `dsh-llm-mode.cmd` into `%USERPROFILE%\bin` (on the user PATH).
+   PowerShell resolves `dsh` to `dsh.cmd` too. TPC's older `dsh.cmd` started a model on TPC itself; it is kept as
+   `dsh.cmd.bak-20261011-localmode`.
+6. **Proxy service:** a per-user logon Scheduled Task "DSH Proxy" runs `wscript //B dsh-proxy.vbs`, which starts
+   node hidden and restarts it 10 s after it exits. Task Scheduler does not restart a task that exits non-zero, hence
+   the loop. Steps 3-6 are `scripts/dsh/windows/setup.ps1`.
+7. **Verify:** `curl.exe -s 127.0.0.1:1235/health`; `dsh-llm-mode status`; then in a PowerShell or cmd window
+   `dsh "Reply with exactly one word: pong"`. Expect `dsh: Flash-Next on AI Server 2 ...`, then `pong`, and
+   `-> ais2 flash-next` in `%LOCALAPPDATA%\dsh\dsh-proxy.log`. Measured: **7 s** from typing to answer with the model
+   already up.
+
+Windows gotchas found in the install:
+- Over ssh, `USERDOMAIN` reads `WORKGROUP`. Use `[Security.Principal.WindowsIdentity]::GetCurrent().Name` for icacls and
+  the task principal.
+- **Never run ssh unbounded from PowerShell.** On 2026-10-12 `dsh` hung for 15 min on TPC inside a blocking
+  `ssh -tt ... llm-mode on` stream. A native ssh in a PowerShell pipeline can also wait on console stdin. Since then,
+  every ssh call in `dsh-llm-mode.ps1` uses `-n`, runs through `Start-Process` with output in temp files, and is killed
+  after 20-30 s. `on` starts the box side detached (`llm-mode on --detach`) and polls `llm-mode status --json` every
+  10 s, printing a progress line each time. After 3 min (`DSH_READY_S`) it prints a status line, drops the LLM-mode
+  marker and starts dsh on the AI Server 1 fallback. AI Server 2 takes over once its model is up. The Mac hook works
+  the same way.
+- No `wake-ai-server-2` on Windows. The hook sends the magic packet itself when the PC is on the box's LAN
+  (192.168.10.x), then retries ssh. The proxy's spawn of the missing helper fails with a handled `ENOENT`.
+- The TTY gate is `[Console]::IsInputRedirected` / `IsOutputRedirected`. Piped or redirected runs skip the hook (exit 3
+  inside the hook) and start no keepalive helper.
