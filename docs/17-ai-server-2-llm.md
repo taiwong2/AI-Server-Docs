@@ -199,3 +199,8 @@ curl -s http://ai-server-2:8080/v1/models -H "Authorization: Bearer $K"
   prefill ~1,500-1,600 and decode ~35-43 tok/s.
 - Vision (mmproj) not installed.
 - The box is on 20 MHz Wi-Fi (~10-12 MB/s): the 114 GB download took ~5 h with two outages. Wire `enp97s0`.
+
+**2026-10-12: dsh-mac-proxy also asks AS2 whether LLM mode is on.** It reads `~/clash-jobs/llm_mode.json` over ssh
+(cached 60 s), in addition to the Mac marker `~/.config/ai-server-2/llm-mode.json`. While AS2 says on, flash-next goes
+only to AS2, or returns 503, and never to AI Server 1's 3090s (the attacker learners). Before this, a stale marker
+sent it to AS1 (model-proxy native host at 22:08 / 22:23 UTC on 2026-10-11). Backup: `bin/dsh-mac-proxy.mjs.bak-20261012`.
