@@ -97,7 +97,7 @@ between the Clash CPU box and the LLM server. The user OK'd loading the model th
    | `requeue` | stop and queue again here; reruns after off (AS2-only measurements) | engspeed*, ca4cost* |
    | `freeze` | cgroup-freeze in place (no CPU, memory kept), thawed by off. Used for jobs with no checkpoint and AS2-bound paths | dsg*, pe-sur, render*, **default for unknown lanes** |
    | `stop` | stateless helper of something that moved | attv3-ractors-as2 |
-   | `stay` (training) | the joint-restart hubs: never frozen or moved | attv3-jr* |
+   | `requeue` (training) | the joint-restart hubs: SIGTERM (final checkpoint); rerun after off with `JR_RUN_DIR` in the job env, resuming from the newest checkpoint | attv3-jr* |
    | `requeue` / `freeze` + `short` | jr AS2 actors / jr gate evals (requeued only when the model needs the memory) | attv3-ractors-as2-jr*, jrgate* |
 
    A failed move falls back to `freeze` (logged with `ERROR`; retry with `llm-mode move ID`). Nothing is plainly killed.
@@ -105,22 +105,20 @@ between the Clash CPU box and the LLM server. The user OK'd loading the model th
 4. `sudo systemctl start llm.target` (memcheck: >= 104 GiB MemAvailable), then a `/health` check and a test chat
    (`reasoning_effort: none`). The 91 GiB model leaves ~24 GiB for the OS and the frozen jobs.
 
-**No deadlock (2026-10-12, ClashEngineering 0fd9c38).** A turn-on that cannot work is refused, never left hanging:
-- **Preflight:** before touching any job, `on` (and `on --detach`) adds up MemAvailable and the memory of every running
-  job whose lane action (or `short` action) frees it (`pf-hub`, `clashsim`, `requeue`, `stop`). `stay` and `freeze` keep
-  their memory: a frozen job holds all of it. If the sum is under memcheck's need (`/srv/llm/memcheck.sh`, 104 GiB),
-  the turn-on is refused with the jobs that hold the memory named.
-- **Load watchdog:** if the model is not up `LLM_LOAD_TRY_S` (180 s) after `on`, the lanes with `"short": "requeue"`
-  (`jrgate*`) are thawed and requeued. If it is still not up `LLM_FREE_TRY_S` (180 s) later, or `--wait-min` runs out,
-  LLM mode turns itself off: model stopped, jobs thawed, hold released. The idle watcher does the same when LLM mode
-  has been on ~11 min with no model and no `on` waiting.
-- **Cooldown:** a refusal or give-up blocks turn-ons for `LLM_COOLDOWN_MIN` (20). `on` / `on --detach` exit **3** with
-  `llm-mode on: REFUSED: <reason> Retry after <time>`. `status --json` has `cooldown_until` and `last_failure`. The AS1
-  relay (`as2_llm_relay.py`), the dsh proxies (`dsh-mac-proxy.mjs`, TPC `dsh-proxy.mjs`) and `dsh-llm-mode` (bash +
-  ps1) pass the reason straight back (503) and do not wait.
-- **Lanes:** `attv3-jr*` (the jrpf / jrcore training hubs) are `stay`, never frozen. `attv3-ractors-as2-jr*` are
-  `requeue`. `jrgate*` are `freeze` with `short: requeue`. While both hubs run (~28 GB), the model cannot fit, so a
-  request gets a fast refusal. Training keeps priority. To serve the LLM anyway, stop a hub on purpose.
+**LLM mode takes precedence over training (user, 2026-10-12; ClashEngineering 50ad6de).** When you want the model, it comes up:
+- **Force free:** after the lane actions, if the model still cannot fit, `on` requeues, largest first, every job whose
+  lane keeps its memory (`stay`, `freeze`; a frozen job holds all of it) until MemAvailable plus the freed memory reaches
+  memcheck's need (104 GiB). 0-CPU proxies and jobs under 0.5 GB are left alone. A requeued job reruns its command after
+  off (unknown lanes restart from their start, so long jobs should have a lane entry with a resumable action).
+- **Training hubs** `attv3-jr*` are `requeue`: SIGTERM writes a final checkpoint, and after off the job reruns
+  `~/jr_run.sh` with `JR_RUN_DIR` (set in the job env) and resumes from the newest checkpoint. A new joint-restart hub
+  must get `JR_RUN_DIR` in its job env, or the rerun starts from `INIT`.
+- **Load watchdog:** if the model is not up 180 s after `on`, the `short` lanes are freed and force-free runs again. If it
+  is still not up 180 s later (it physically cannot load), LLM mode turns itself off, every job is released, and `on`
+  exits 3 with the reason. `LLM_COOLDOWN_MIN` defaults to **0**, so the next `dsh` retries at once.
+- **Measured (2026-10-12 23:46Z):** with both hubs, AS2 actors and 11 eval jobs running (MemAvailable 69 GiB), `llm-mode on`
+  had the model answering in 64 s.
+- The idle unload (30 min, 60 min with a dsh keepalive) gives the box back to training.
 - Incident and recovery: [docs/08](08-troubleshooting.md#llm-mode-on-but-no-model-and-no-training-the-2026-10-12-deadlock).
 
 **off:** stop `llm.target`, thaw frozen jobs, clear the hold (held jobs start), stop the keep-awake. Moved jobs stay

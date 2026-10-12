@@ -322,7 +322,10 @@ requeues the lanes marked `"short"` (`jrgate*`). If it is still not up 3 min aft
 stopped, jobs thawed, hold released). Both cases set a 20 min cooldown (`LLM_COOLDOWN_MIN`). During it, `on` and
 `on --detach` exit 3 with `REFUSED: <reason>`, and the relay, the dsh proxies and `dsh-llm-mode` show that reason
 right away (503) instead of waiting. The `attv3-jr*` lanes are `stay`, so training is never frozen. While both hubs
-run, the model cannot fit and the answer is a clear refusal. **By hand:** `ssh ai-server-2 llm-mode off`.
+run, the model cannot fit and the answer is a clear refusal. **Superseded (50ad6de, the user's rule: LLM mode takes
+precedence):** the refusal and the cooldown are gone. `on` requeues the hubs (they resume from their checkpoint after
+off) and any other job that keeps the model's memory, then loads; see [docs/17](17-ai-server-2-llm.md). **By hand:**
+`ssh ai-server-2 llm-mode off`.
 
 ## clash-sim actors at 0 b/s while `wsl -l -v` says Running: C: full, root read-only (2026-10-12)
 
