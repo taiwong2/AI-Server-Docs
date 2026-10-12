@@ -496,3 +496,7 @@ launchctl kickstart -k gui/$(id -u)/com.tai.dsh-mac-proxy    # restart after edi
 tail -f ~/Library/Logs/dsh-mac-proxy.log
 curl -s localhost:1235/health                                # {"status":"ok","ais2_llm":true|false}
 ```
+
+**Bare `dsh` (2026-10-12):** typing `dsh` with no arguments opens the interactive browser UI (`--profile web`), after
+turning on AI Server 2's LLM mode like any terminal session. `dsh "task"` stays a one-shot headless run. Before this
+fix a bare `dsh` failed with `error: --profile <name> is required` (dsh itself has no default profile).

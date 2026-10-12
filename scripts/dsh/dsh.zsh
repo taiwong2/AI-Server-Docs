@@ -10,8 +10,9 @@ HOOK="$ROOT/bin/dsh-llm-mode"
 # Make headless—the normal one-shot agent profile—the default, while preserving
 # explicit profile selection and the top-level launcher commands.
 case "${1:-}" in
-  --help|-h|--version|-V|web|plugin) exec "$DSH_BIN" "$@" ;;
-  ""|--profile) ARGS=("$@") ;;
+  --help|-h|--version|-V|plugin) exec "$DSH_BIN" "$@" ;;
+  "") ARGS=(--profile web) ;;   # bare `dsh` = the interactive browser UI, through LLM mode
+  web|--profile) ARGS=("$@") ;;
   *) ARGS=(--profile headless "$@") ;;
 esac
 

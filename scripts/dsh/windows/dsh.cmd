@@ -17,8 +17,11 @@ set "PSEXE=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 set "PROFILE_ARGS="
 set "KEEPF="
 set "A1=%~1"
+rem bare `dsh` (no args) = the interactive browser UI (web profile), through LLM mode like a session
+if "%A1%"=="" set "PROFILE_ARGS=--profile web"
 if "%A1%"=="" goto session
-for %%x in (--help -h --version -V web plugin) do if "%A1%"=="%%x" goto direct
+if "%A1%"=="web" goto session
+for %%x in (--help -h --version -V plugin) do if "%A1%"=="%%x" goto direct
 if "%A1%"=="--profile" goto session
 set "PROFILE_ARGS=--profile headless"
 
