@@ -1,0 +1,1117 @@
+#!/usr/bin/python3
+"""aq: a durable task queue for Claude Code agents on the Mac.
+
+Work survives Claude usage limits: tasks wait in ~/.claude/agent-queue/tasks/*.json, a LaunchAgent runner drains
+them with headless `claude -p`, sleeps (without calling the API) until the limit resets, then resumes the same
+session. Tasks marked fallback=dsh run through dsh (Flash-Next) during an outage; runner=dsh tasks always do.
+
+Docs: ~/Documents/AI-Server-Docs/docs/22-agent-queue.md. Stdlib only; light (no compute on the Mac).
+"""
+import argparse
+import contextlib
+import datetime as dt
+import fcntl
+import glob
+import json
+import os
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import time
+import uuid
+
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:  # pragma: no cover
+    ZoneInfo = None
+
+HOME = os.path.expanduser(os.environ.get("AQ_HOME", "~/.claude/agent-queue"))
+TASKS = os.path.join(HOME, "tasks")
+LOGS = os.path.join(HOME, "logs")
+NOTES = os.path.join(HOME, "notes")
+WORK = os.path.join(HOME, "dsh-work")
+STATE = os.path.join(HOME, "state.json")
+RUNLOG = os.path.join(HOME, "runner.log")
+HOOKLOG = os.path.join(HOME, "hooks.log")
+LOCK = os.path.join(HOME, ".lock")
+RUNLOCK = os.path.join(HOME, ".runner.lock")
+PROJECTS = os.path.expanduser(os.environ.get("AQ_PROJECTS", "~/.claude/projects"))
+
+CLAUDE = os.environ.get("AQ_CLAUDE_BIN") or shutil.which("claude") or os.path.expanduser("~/.local/bin/claude")
+DSH = os.environ.get("AQ_DSH_BIN") or os.path.expanduser("~/Documents/deepseek-harness/bin/dsh")
+MAX_PAR = int(os.environ.get("AQ_MAX_PARALLEL", "2"))
+POLL = float(os.environ.get("AQ_POLL", "20"))
+SWEEP_EVERY = float(os.environ.get("AQ_SWEEP_EVERY", "300"))
+DEFAULT_TZ = os.environ.get("AQ_TZ", "America/Chicago")
+LIMIT_FALLBACK_WAIT = int(os.environ.get("AQ_LIMIT_FALLBACK_WAIT", "1800"))  # reset time unparseable
+RESET_SLACK = int(os.environ.get("AQ_RESET_SLACK", "90"))  # wait this long past the stated reset
+ACTIVE = ("pending", "running")
+
+
+# ----------------------------------------------------------------------------------------------------------- utils
+def now():
+    return time.time()
+
+
+def iso(t=None):
+    if t is None:
+        t = now()
+    return dt.datetime.fromtimestamp(t, dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def local(t):
+    if not t:
+        return "-"
+    return dt.datetime.fromtimestamp(t).strftime("%m-%d %H:%M")
+
+
+def ensure_dirs():
+    for d in (HOME, TASKS, LOGS, NOTES, WORK):
+        os.makedirs(d, exist_ok=True)
+
+
+_LOCK_DEPTH = [0]
+
+
+@contextlib.contextmanager
+def qlock():
+    """Queue-wide lock (flock), reentrant within this process."""
+    if _LOCK_DEPTH[0]:
+        _LOCK_DEPTH[0] += 1
+        try:
+            yield
+        finally:
+            _LOCK_DEPTH[0] -= 1
+        return
+    ensure_dirs()
+    with open(LOCK, "a") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        _LOCK_DEPTH[0] = 1
+        try:
+            yield
+        finally:
+            _LOCK_DEPTH[0] = 0
+            fcntl.flock(f, fcntl.LOCK_UN)
+
+
+def write_json(path, obj):
+    tmp = "%s.tmp%d" % (path, os.getpid())
+    with open(tmp, "w") as f:
+        json.dump(obj, f, indent=1, sort_keys=True)
+    os.replace(tmp, path)
+
+
+def read_json(path, default=None):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return default
+
+
+def tpath(tid):
+    return os.path.join(TASKS, tid + ".json")
+
+
+def load(tid):
+    return read_json(tpath(tid))
+
+
+def save(t):
+    t["updated"] = now()
+    write_json(tpath(t["id"]), t)
+
+
+def all_tasks():
+    out = []
+    for p in glob.glob(os.path.join(TASKS, "*.json")):
+        t = read_json(p)
+        if t:
+            out.append(t)
+    out.sort(key=lambda t: t.get("created", 0))
+    return out
+
+
+def resolve(ref):
+    ts = all_tasks()
+    exact = [t for t in ts if t["id"] == ref]
+    if exact:
+        return exact[0]
+    m = [t for t in ts if t["id"].startswith(ref) or t["id"].endswith(ref)]
+    if not m:
+        m = [t for t in ts if t.get("label") == ref]
+        m = m[-1:]  # newest with that label
+    if len(m) != 1:
+        sys.exit("aq: %s task matches %r" % ("no" if not m else "more than one", ref))
+    return m[0]
+
+
+def event(t, msg):
+    t.setdefault("history", []).append([iso(), msg])
+    t["history"] = t["history"][-50:]
+
+
+def rlog(msg):
+    ensure_dirs()
+    line = "%s %s" % (iso(), msg)
+    with open(RUNLOG, "a") as f:
+        f.write(line + "\n")
+    if os.environ.get("AQ_VERBOSE"):
+        print(line, flush=True)
+
+
+def get_state():
+    return read_json(STATE, {}) or {}
+
+
+def put_state(**kw):
+    with qlock():
+        s = get_state()
+        s.update(kw)
+        write_json(STATE, s)
+        return s
+
+
+def alive(pid):
+    if not pid:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def parse_duration(s):
+    m = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*([smhd]?)\s*", s or "")
+    if not m:
+        raise SystemExit("aq: bad duration %r (use 90s, 30m, 2h, 1d)" % s)
+    return float(m.group(1)) * {"": 1, "s": 1, "m": 60, "h": 3600, "d": 86400}[m.group(2)]
+
+
+def parse_when(s):
+    """'+30m', '21:20' (local, next occurrence), or an ISO timestamp."""
+    if s.startswith("+"):
+        return now() + parse_duration(s[1:])
+    m = re.fullmatch(r"(\d{1,2}):(\d{2})", s)
+    if m:
+        d = dt.datetime.now().replace(hour=int(m.group(1)), minute=int(m.group(2)), second=0, microsecond=0)
+        if d.timestamp() <= now():
+            d += dt.timedelta(days=1)
+        return d.timestamp()
+    return dt.datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
+
+
+# -------------------------------------------------------------------------------------------- limit detection
+LIMIT_RE = re.compile(r"(hit your [\w\s-]*limit|usage limit|session limit|weekly limit|rate[_ ]limit|"
+                      r"\b429\b|limit reached|out of extra usage)", re.I)
+RESET_RE = re.compile(
+    r"resets\s+(?:at\s+)?(?:(?P<mon>[A-Z][a-z]{2,8})\s+(?P<day>\d{1,2}),?\s+(?:at\s+)?)?"
+    r"(?P<h>\d{1,2})(?::(?P<m>\d{2}))?\s*(?P<ap>[ap]\.?m\.?)\s*(?:\((?P<tz>[^)]+)\))?", re.I)
+
+
+def parse_reset(text, ref=None):
+    """'... resets 9:20pm (America/Chicago)' -> epoch of the next such time (or None)."""
+    m = RESET_RE.search(text or "")
+    if not m:
+        return None
+    ref = ref or now()
+    tzname = m.group("tz") or DEFAULT_TZ
+    try:
+        tz = ZoneInfo(tzname) if ZoneInfo else None
+    except Exception:
+        tz = ZoneInfo(DEFAULT_TZ) if ZoneInfo else None
+    h = int(m.group("h")) % 12 + (12 if m.group("ap").lower().startswith("p") else 0)
+    mi = int(m.group("m") or 0)
+    base = dt.datetime.fromtimestamp(ref, tz)
+    if m.group("mon"):
+        try:
+            month = dt.datetime.strptime(m.group("mon")[:3].title(), "%b").month
+        except ValueError:
+            month = base.month
+        cand = base.replace(month=month, day=int(m.group("day")), hour=h, minute=mi, second=0, microsecond=0)
+        if cand.timestamp() < ref - 86400:
+            cand = cand.replace(year=cand.year + 1)
+    else:
+        cand = base.replace(hour=h, minute=mi, second=0, microsecond=0)
+        if cand.timestamp() <= ref - 120:
+            cand += dt.timedelta(days=1)
+    return cand.timestamp()
+
+
+def find_transcript(session_id):
+    if not session_id:
+        return None
+    m = glob.glob(os.path.join(PROJECTS, "*", session_id + ".jsonl"))
+    return m[0] if m else None
+
+
+def find_agent_transcript(agent_id):
+    m = glob.glob(os.path.join(PROJECTS, "*", "*", "subagents", "agent-%s.jsonl" % agent_id))
+    m += glob.glob(os.path.join(PROJECTS, "*", "*", "subagents", "*", "*", "agent-%s.jsonl" % agent_id))
+    return max(m, key=os.path.getmtime) if m else None
+
+
+def tail_records(path, n=1, maxbytes=400000):
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            f.seek(max(0, size - maxbytes))
+            data = f.read().decode("utf8", "replace")
+    except OSError:
+        return []
+    out = []
+    for line in data.splitlines()[-n * 4:]:
+        try:
+            out.append(json.loads(line))
+        except ValueError:
+            pass
+    return out[-n:]
+
+
+def record_text(rec):
+    msg = rec.get("message") or {}
+    c = msg.get("content")
+    if isinstance(c, str):
+        return c
+    if isinstance(c, list):
+        return " ".join(x.get("text", "") for x in c if isinstance(x, dict))
+    return ""
+
+
+def transcript_limit(path):
+    """If the transcript ends with a usage-limit error: (reset_epoch_or_None, failed_at_epoch, text)."""
+    recs = tail_records(path, 1) if path else []
+    if not recs:
+        return None
+    r = recs[-1]
+    if r.get("error") != "rate_limit" and r.get("apiErrorStatus") != 429:
+        return None
+    reset = (r.get("quotaLimits") or {}).get("resetsAt")
+    txt = record_text(r)
+    failed = r.get("timestamp")
+    failed_at = dt.datetime.fromisoformat(failed.replace("Z", "+00:00")).timestamp() if failed else now()
+    return (float(reset) if reset else parse_reset(txt, failed_at), failed_at, txt)
+
+
+def resumed_since(path, since):
+    """True if the model produced a normal (non-error) assistant turn in this transcript after `since`."""
+    for r in tail_records(path, 400):
+        ts = r.get("timestamp")
+        if not ts or r.get("type") != "assistant" or r.get("isApiErrorMessage"):
+            continue
+        if dt.datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp() > since + 5:
+            return True
+    return False
+
+
+def block_until(reset, why):
+    until = (reset or (now() + LIMIT_FALLBACK_WAIT)) + RESET_SLACK
+    with qlock():
+        s = get_state()
+        if until > s.get("blocked_until", 0):
+            s["blocked_until"] = until
+            s["blocked_why"] = why[:300]
+            s["blocked_set"] = now()
+            write_json(STATE, s)
+    return until
+
+
+def is_blocked():
+    s = get_state()
+    return s.get("blocked_until", 0) > now(), s
+
+
+# --------------------------------------------------------------------------------------------------- creating
+def new_id():
+    return dt.datetime.now().strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:4]
+
+
+def make_task(prompt, **kw):
+    t = {
+        "id": new_id(), "label": None, "prompt": prompt, "cwd": os.getcwd(), "priority": 5, "created": now(),
+        "owner": os.environ.get("AQ_OWNER") or ("claude:" + os.environ["CLAUDE_CODE_SESSION_ID"]
+                                               if os.environ.get("CLAUDE_CODE_SESSION_ID") else "user"),
+        "status": "pending", "attempts": 0, "max_attempts": 3, "limit_hits": 0, "last_error": None,
+        "runner": "claude", "fallback": "none", "resume_session_id": None, "fork_session": False,
+        "session_id": None, "permission_mode": None, "model": None, "effort": None, "timeout_s": None,
+        "not_before": 0, "every_s": None, "kind": "task", "source": None, "pid": None, "dsh_cwd": False,
+    }
+    t.update({k: v for k, v in kw.items() if v is not None})
+    event(t, "created by %s" % t["owner"])
+    with qlock():
+        save(t)
+    return t
+
+
+def find_by_source(key, value):
+    for t in all_tasks():
+        if (t.get("source") or {}).get(key) == value:
+            return t
+    return None
+
+
+RESUME_AGENT = """Resume a background Claude Code agent that was stopped by a Claude usage limit.
+Agent id: {agent_id}  parent session: {session_id}  cwd: {cwd}  died: {failed} UTC.
+Its transcript (JSONL): {transcript}
+{message}
+Do this:
+1. Read the resume notes: `aq notes --session {session_id} --agent {agent_id}` (agents of this session record state
+   with `aq note`; pick the one that matches this agent's work).
+2. Read what it was doing: `aq transcript {transcript} --last 60` (add `--first 5` for how it started).
+3. Hours may have passed and other agents or humans may have acted. Re-check the live state before acting; do not
+   redo finished steps or undo someone else's work. If the work is already done, verify and say so.
+4. Finish the task, following the repo rules (AGENTS.md / CLAUDE.md). Record progress with `aq note {{task}} "..."`.
+Your final message is the report: what was done, what remains, anything a human must decide."""
+
+RESUME_SESSION = """This Claude Code session stopped at a usage limit ({failed} UTC); the limit has reset and you are a
+headless continuation run by the agent queue. {message}
+Background agents that died at the same limit have their own resume tasks (`aq list`); do not redo their work.
+Re-check the live state first (time has passed), then continue the work that remains in this session. Record progress
+with `aq note {{task}} "..."`. Your final message is the report."""
+
+
+def enqueue_resume_agent(agent_id, message="", priority=6, transcript=None, failed_at=None, session_id=None,
+                         cwd=None, owner=None, label=None):
+    tr = transcript or find_agent_transcript(agent_id)
+    if tr:
+        recs = tail_records(tr, 1)
+        if recs:
+            session_id = session_id or recs[-1].get("sessionId")
+            cwd = cwd or recs[-1].get("cwd")
+    prompt = RESUME_AGENT.format(agent_id=agent_id, session_id=session_id or "?", cwd=cwd or "?",
+                                 failed=iso(failed_at) if failed_at else "?", transcript=tr or "(not found)",
+                                 message=("Message for the resumed agent: " + message) if message else "")
+    return make_task(prompt, kind="resume-agent", priority=priority, cwd=cwd or os.getcwd(), owner=owner,
+                     label=label or ("resume-" + agent_id[:10]),
+                     source={"agent_id": agent_id, "session_id": session_id, "transcript": tr,
+                             "failed_at": failed_at})
+
+
+def enqueue_resume_session(session_id, message="", priority=4, failed_at=None, cwd=None, owner=None, fork=True):
+    tr = find_transcript(session_id)
+    if tr and not cwd:
+        recs = tail_records(tr, 1)
+        cwd = recs[-1].get("cwd") if recs else None
+    prompt = RESUME_SESSION.format(failed=iso(failed_at) if failed_at else "?", message=message)
+    return make_task(prompt, kind="resume-session", priority=priority, cwd=cwd or os.getcwd(), owner=owner,
+                     resume_session_id=session_id, fork_session=fork, label="resume-session-" + session_id[:8],
+                     source={"session_id": session_id, "transcript": tr, "failed_at": failed_at})
+
+
+# ----------------------------------------------------------------------------------------------------- runner
+PREAMBLE = ("You are running unattended from the agent queue (aq task {id}); no human is watching this session. "
+            "At major steps and before any long wait, record your state and next steps with "
+            "`aq note {id} \"...\"` so a later run can continue if you are stopped (for example by a usage limit). "
+            "Your final message is the task's report.")
+
+DSH_PREAMBLE = """You are the fallback ops agent (dsh on Flash-Next), running task {id} from the Mac agent queue
+while Claude is unavailable. No human is watching. Be conservative: check state read-only first; take only the actions
+this task explicitly authorises, using the documented commands it names; never delete data, never force-push, never
+edit git checkouts on the servers; if the situation is not what the task describes, do nothing and report. The Mac is a
+dev machine: run no heavy compute on it (ssh to the servers is fine). End with a short report: what you checked, what
+you did, the evidence.
+
+TASK:
+"""
+
+
+def notes_for(keys):
+    out = []
+    for k in keys:
+        if not k:
+            continue
+        p = os.path.join(NOTES, safe(k) + ".md")
+        if os.path.exists(p):
+            with open(p) as f:
+                out.append(f.read()[-6000:])
+    return "\n".join(out)
+
+
+def build_claude_cmd(t):
+    cont = False
+    cmd = [CLAUDE, "-p"]
+    if t.get("session_id"):  # an earlier attempt of this task already has a session: continue it
+        cmd += ["--resume", t["session_id"]]
+        cont = True
+    elif t.get("resume_session_id"):
+        cmd += ["--resume", t["resume_session_id"]]
+        if t.get("fork_session"):
+            cmd += ["--fork-session"]
+        else:
+            t["session_id"] = t["resume_session_id"]
+    else:
+        t["session_id"] = str(uuid.uuid4())
+        cmd += ["--session-id", t["session_id"]]
+    if cont:
+        n = notes_for([t["id"], t.get("label")])
+        prompt = ("You were stopped (usage limit or error: %s). Continue the task from where you left off; "
+                  "re-check live state first, don't redo finished steps.%s"
+                  % ((t.get("last_error") or "?")[:200], ("\nYour resume notes:\n" + n) if n else ""))
+    else:
+        prompt = t["prompt"]
+        if t.get("message"):
+            prompt += "\n" + t["message"]
+    cmd += ["--output-format", "json", "--append-system-prompt", PREAMBLE.format(id=t["id"])]
+    if t.get("permission_mode"):
+        cmd += ["--permission-mode", t["permission_mode"]]
+    if t.get("model"):
+        cmd += ["--model", t["model"]]
+    if t.get("effort"):
+        cmd += ["--effort", t["effort"]]
+    cmd += ["--", prompt.replace("{task}", t["id"])]
+    return cmd
+
+
+def build_dsh_cmd(t, env):
+    n = notes_for([t["id"], t.get("label")])
+    prompt = DSH_PREAMBLE.format(id=t["id"]) + t["prompt"].replace("{task}", t["id"])
+    if n:
+        prompt += "\n\nNotes left by earlier runs of this task:\n" + n
+    # The bin/dsh launcher's non-TTY path is `exec node_modules/.bin/dsh` (a shebang script behind a symlink). Under
+    # launchd, macOS refuses to exec that from ~/Documents (EPERM), while `node lib/bin.js` works. So do what the
+    # launcher does, directly: DSH_HOME + DSH_PERMISSION_MODE, then node on the real entry point.
+    root = os.path.dirname(os.path.dirname(os.path.realpath(DSH)))
+    entry = os.path.join(root, "node_modules", ".bin", "dsh")
+    node = shutil.which("node", path=env.get("PATH"))
+    if os.path.basename(DSH) == "dsh" and os.path.exists(entry) and node:
+        env.setdefault("DSH_HOME", os.path.join(root, "home"))
+        env.setdefault("DSH_PERMISSION_MODE", "workspace-write")
+        return [node, os.path.realpath(entry), "--profile", "headless", prompt]
+    return [DSH, "--profile", "headless", prompt]
+
+
+class Runner:
+    def __init__(self):
+        self.procs = {}  # tid -> (Popen, mode, started, out_path, log_fh)
+        self.last_sweep = 0
+
+    def recover(self):
+        with qlock():
+            for t in all_tasks():
+                if t["status"] == "running" and not alive(t.get("pid")):
+                    t["status"] = "pending"
+                    t["pid"] = None
+                    event(t, "runner restarted; was running, back to pending")
+                    save(t)
+                    rlog("recover %s -> pending" % t["id"])
+
+    def start(self, t, mode):
+        log_path = os.path.join(LOGS, t["id"] + ".log")
+        out_path = os.path.join(LOGS, "%s.%d.%s.out" % (t["id"], t["attempts"] + t["limit_hits"] + 1, mode))
+        env = dict(os.environ, AQ_TASK_ID=t["id"], AQ_HOME=HOME)
+        env.setdefault("PATH", "/usr/bin:/bin")
+        for extra in (os.path.expanduser("~/.local/bin"), "/opt/homebrew/bin", "/usr/local/bin"):
+            if extra not in env["PATH"].split(":"):
+                env["PATH"] += ":" + extra
+        if mode == "claude":
+            cmd = build_claude_cmd(t)
+            cwd = t.get("cwd") if os.path.isdir(t.get("cwd") or "") else HOME
+            env.pop("CLAUDECODE", None)
+            for k in ("CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_MESSAGING_SOCKET",
+                      "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_PID", "CLAUDE_CODE_SESSION_ATTENDED"):
+                env.pop(k, None)
+        else:
+            cmd = build_dsh_cmd(t, env)
+            cwd = t["cwd"] if t.get("dsh_cwd") and os.path.isdir(t.get("cwd") or "") else os.path.join(WORK, t["id"])
+            os.makedirs(cwd, exist_ok=True)
+            env["DSH_KEEP_CWD"] = "1"
+            env["DSH_NO_LLM_MODE"] = "1"  # never evict AS2 Clash jobs from an unattended run
+        lf = open(log_path, "a")
+        lf.write("\n===== %s start %s attempt=%d limit_hits=%d cwd=%s\n$ %s\n" % (
+            iso(), mode, t["attempts"], t["limit_hits"], cwd,
+            " ".join(c if len(c) < 120 else c[:117] + "..." for c in cmd)))
+        lf.flush()
+        out = open(out_path, "w")
+        p = subprocess.Popen(cmd, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=out,
+                             stderr=(lf if mode == "claude" else subprocess.STDOUT), start_new_session=True)
+        out.close()
+        t["status"] = "running"
+        t["pid"] = p.pid
+        t["mode"] = mode
+        t["started"] = now()
+        event(t, "start %s pid=%d" % (mode, p.pid))
+        save(t)
+        self.procs[t["id"]] = (p, mode, now(), out_path, lf)
+        rlog("start %s %s pid=%d" % (t["id"], mode, p.pid))
+
+    def finish(self, tid, rc):
+        p, mode, started, out_path, lf = self.procs.pop(tid)
+        try:
+            with open(out_path, errors="replace") as f:
+                out = f.read()
+        except OSError:
+            out = ""
+        lf.write("----- output (%s)\n%s\n===== %s exit rc=%s after %ds\n" % (out_path, out[-20000:], iso(), rc,
+                                                                            now() - started))
+        lf.close()
+        try:
+            with open(os.path.join(LOGS, tid + ".log"), errors="replace") as f:
+                f.seek(0, 2)
+                f.seek(max(0, f.tell() - 30000))
+                logtail = f.read()
+        except OSError:
+            logtail = ""
+        with qlock():
+            t = load(tid)
+            if not t:
+                return
+            t["pid"] = None
+            if t["status"] == "cancelled":
+                event(t, "exited rc=%s after cancel" % rc)
+                save(t)
+                return
+            result, is_error, limit, reset = None, rc != 0, False, None
+            if mode == "claude":
+                j = None
+                for line in reversed(out.strip().splitlines()):
+                    try:
+                        j = json.loads(line)
+                        break
+                    except ValueError:
+                        continue
+                if j is None:
+                    try:
+                        j = json.loads(out)
+                    except ValueError:
+                        j = None
+                if isinstance(j, dict):
+                    result = j.get("result")
+                    is_error = bool(j.get("is_error")) or rc != 0
+                    if j.get("session_id"):
+                        t["session_id"] = j["session_id"]
+                tl = transcript_limit(find_transcript(t.get("session_id")))
+                text = (result or "") + "\n" + out[-4000:] + "\n" + logtail[-4000:]
+                if is_error and (tl or LIMIT_RE.search(text)):
+                    limit = True
+                    reset = (tl[0] if tl else None) or parse_reset(text)
+            else:
+                result = out.strip()[-4000:]
+            t["result"] = (result or "")[-8000:] if result else t.get("result")
+            if limit:
+                until = block_until(reset, "task %s: %s" % (tid, (result or text.strip())[-200:]))
+                t["status"] = "pending"
+                t["limit_hits"] += 1
+                t["last_error"] = "usage limit (reset %s)" % local(until)
+                event(t, "usage limit; pending until %s" % iso(until))
+                rlog("limit %s; blocked until %s" % (tid, iso(until)))
+            elif not is_error:
+                if mode == "claude":
+                    put_state(blocked_until=0, blocked_why="cleared by success of %s" % tid)
+                t["finished"] = now()
+                t["ran_on"] = mode
+                if t.get("every_s"):
+                    t["status"] = "pending"
+                    t["not_before"] = now() + t["every_s"]
+                    t["attempts"] = 0
+                    t["session_id"] = None
+                    event(t, "done on %s; recurring, next %s" % (mode, iso(t["not_before"])))
+                else:
+                    t["status"] = "done"
+                    event(t, "done on %s" % mode)
+                rlog("done %s on %s" % (tid, mode))
+            else:
+                t["attempts"] += 1
+                t["last_error"] = ("rc=%s %s" % (rc, (result or logtail.strip())[-300:])).strip()
+                if t["attempts"] < t["max_attempts"]:
+                    t["status"] = "pending"
+                    t["not_before"] = now() + 300 * t["attempts"]
+                    event(t, "failed rc=%s; retry %d/%d at %s" % (rc, t["attempts"] + 1, t["max_attempts"],
+                                                                  iso(t["not_before"])))
+                else:
+                    t["status"] = "failed"
+                    t["finished"] = now()
+                    event(t, "failed rc=%s; out of attempts" % rc)
+                rlog("error %s rc=%s -> %s" % (tid, rc, t["status"]))
+            save(t)
+
+    def superseded(self, t):
+        src = t.get("source") or {}
+        if t["kind"] not in ("resume-agent", "resume-session") or t.get("session_id") or not src.get("failed_at"):
+            return False
+        path = src.get("transcript") or (find_agent_transcript(src["agent_id"]) if src.get("agent_id")
+                                         else find_transcript(src.get("session_id")))
+        return bool(path) and resumed_since(path, src["failed_at"])
+
+    def tick(self):
+        for tid, (p, *_rest) in list(self.procs.items()):
+            rc = p.poll()
+            if rc is not None:
+                self.finish(tid, rc)
+        for tid, (p, mode, started, _o, _l) in list(self.procs.items()):
+            t = load(tid) or {}
+            lim = t.get("timeout_s") or (10800 if mode == "claude" else 1800)
+            if t.get("status") == "cancelled" or now() - started > lim:
+                with contextlib.suppress(Exception):
+                    os.killpg(p.pid, signal.SIGTERM)
+                if t.get("status") != "cancelled":
+                    rlog("timeout %s after %ds" % (tid, lim))
+        if now() - self.last_sweep > SWEEP_EVERY:
+            self.last_sweep = now()
+            try:
+                sweep()
+            except Exception as e:  # never let the sweeper kill the runner
+                rlog("sweep error: %r" % e)
+        blocked, st = is_blocked()
+        if st.get("paused"):
+            return
+        pend = [t for t in all_tasks() if t["status"] == "pending" and t.get("not_before", 0) <= now()
+                and t["id"] not in self.procs]
+        pend.sort(key=lambda t: (-t.get("priority", 5), t.get("created", 0)))
+        for t in pend:
+            if len(self.procs) >= MAX_PAR:
+                break
+            if self.superseded(t):
+                with qlock():
+                    t = load(t["id"])
+                    t["status"] = "done"
+                    t["result"] = "superseded: the session/agent was resumed by someone else after the limit"
+                    event(t, "superseded")
+                    save(t)
+                rlog("superseded %s" % t["id"])
+                continue
+            if t.get("runner") == "dsh":
+                mode = "dsh"
+            elif blocked:
+                if t.get("fallback") != "dsh":
+                    continue
+                mode = "dsh"
+            else:
+                mode = "claude"
+            with qlock():
+                t = load(t["id"])
+                if t and t["status"] == "pending":
+                    self.start(t, mode)
+            if mode == "claude":
+                break  # one claude start per tick: a fresh limit hit stops the rest without hammering
+
+    def loop(self):
+        self.recover()
+        rlog("runner up pid=%d max_parallel=%d claude=%s dsh=%s" % (os.getpid(), MAX_PAR, CLAUDE, DSH))
+        stop = []
+        signal.signal(signal.SIGTERM, lambda *a: stop.append(1))
+        once = os.environ.get("AQ_ONCE")
+        while not stop:
+            self.tick()
+            if once and not self.procs and not [t for t in all_tasks() if t["status"] == "pending"]:
+                break  # test mode: drain everything, including tasks waiting for a limit reset
+            time.sleep(min(POLL, 2) if self.procs else POLL)
+        rlog("runner down")
+
+
+# ----------------------------------------------------------------------------------------- hook and sweeper
+def own_sessions():
+    return {t.get("session_id") for t in all_tasks()} | {t.get("resume_session_id") for t in all_tasks()}
+
+
+def sweep():
+    """Find agents/sessions that died at a usage limit (backup for the hook) and queue their resumption."""
+    st = get_state()
+    since = st.get("sweep_since")
+    if not since:
+        put_state(sweep_since=now())  # first run: only deaths from now on
+        return
+    mine = own_sessions()
+    cutoff = max(since, now() - 12 * 3600)
+    for path in glob.glob(os.path.join(PROJECTS, "*", "*", "subagents", "agent-*.jsonl")) + \
+            glob.glob(os.path.join(PROJECTS, "*", "*", "subagents", "*", "*", "agent-*.jsonl")):
+        if os.path.getmtime(path) < cutoff:
+            continue
+        tl = transcript_limit(path)
+        if not tl or tl[1] < since:
+            continue
+        aid = os.path.basename(path)[6:-6]
+        if find_by_source("agent_id", aid):
+            continue
+        sid = (tail_records(path, 1) or [{}])[-1].get("sessionId")
+        if sid in mine:
+            continue
+        block_until(tl[0], "sweep: agent %s hit the limit" % aid)
+        t = enqueue_resume_agent(aid, transcript=path, failed_at=tl[1], owner="sweeper")
+        rlog("sweep queued %s for agent %s" % (t["id"], aid))
+    for path in glob.glob(os.path.join(PROJECTS, "*", "*.jsonl")):
+        if os.path.getmtime(path) < cutoff:
+            continue
+        sid = os.path.basename(path)[:-6]
+        if sid in mine or find_by_source("session_id", sid) and \
+                (find_by_source("session_id", sid).get("kind") == "resume-session"):
+            continue
+        tl = transcript_limit(path)
+        if not tl or tl[1] < since:
+            continue
+        block_until(tl[0], "sweep: session %s hit the limit" % sid)
+        t = enqueue_resume_session(sid, failed_at=tl[1], owner="sweeper")
+        rlog("sweep queued %s for session %s" % (t["id"], sid))
+
+
+def cmd_hook(_a):
+    """Claude Code StopFailure hook (matcher rate_limit). Reads the hook JSON on stdin. Always exits 0."""
+    try:
+        raw = sys.stdin.read()
+        ensure_dirs()
+        with open(HOOKLOG, "a") as f:
+            f.write("%s %s\n" % (iso(), raw.strip()[:4000]))
+        d = json.loads(raw or "{}")
+        err = str(d.get("error") or "")
+        text = json.dumps(d.get("error_details") or "") + " " + str(d.get("last_assistant_message") or "")
+        if d.get("hook_event_name") not in (None, "StopFailure"):
+            return
+        if err != "rate_limit" and not LIMIT_RE.search(text):
+            return
+        sid = d.get("session_id")
+        aid = d.get("agent_id")
+        tr = find_agent_transcript(aid) if aid else (d.get("transcript_path") or find_transcript(sid))
+        tl = transcript_limit(tr) if tr else None
+        reset = (tl[0] if tl else None) or parse_reset(text)
+        failed_at = tl[1] if tl else now()
+        block_until(reset, "hook: %s %s" % (aid or sid, text[-150:]))
+        if os.environ.get("AQ_TASK_ID") or sid in own_sessions():
+            return  # a queue task: the runner re-queues it itself
+        if aid:
+            if not find_by_source("agent_id", aid):
+                enqueue_resume_agent(aid, transcript=tr, failed_at=failed_at, session_id=sid, cwd=d.get("cwd"),
+                                     owner="hook")
+        elif not tl:
+            # No agent id and the session transcript does not end in a limit error: most likely a background agent
+            # of this session. The sweeper finds it by its own transcript.
+            time.sleep(2)
+            sweep()
+        elif sid:
+            prev = find_by_source("session_id", sid)
+            if not (prev and prev.get("kind") == "resume-session" and prev["status"] in ACTIVE):
+                enqueue_resume_session(sid, failed_at=failed_at, cwd=d.get("cwd"), owner="hook")
+    except Exception as e:  # a hook must never break the session
+        with contextlib.suppress(Exception):
+            with open(HOOKLOG, "a") as f:
+                f.write("%s hook error %r\n" % (iso(), e))
+
+
+# -------------------------------------------------------------------------------------------------- notes
+def safe(k):
+    return re.sub(r"[^A-Za-z0-9._-]", "_", k)[:120]
+
+
+def cmd_note(a):
+    text = " ".join(a.text) if a.text else sys.stdin.read()
+    ensure_dirs()
+    key = a.key
+    with contextlib.suppress(SystemExit):
+        if os.path.exists(TASKS):
+            t = [x for x in all_tasks() if x["id"] == key or x.get("label") == key]
+            if t:
+                key = t[-1]["id"]
+    hdr = "## %s session=%s cwd=%s%s\n" % (iso(), os.environ.get("CLAUDE_CODE_SESSION_ID", "-"), os.getcwd(),
+                                         (" task=" + os.environ["AQ_TASK_ID"]) if os.environ.get("AQ_TASK_ID") else "")
+    with open(os.path.join(NOTES, safe(key) + ".md"), "a") as f:
+        f.write(hdr + text.strip() + "\n\n")
+    print("noted under %s" % key)
+
+
+def cmd_notes(a):
+    files = sorted(glob.glob(os.path.join(NOTES, "*.md")), key=os.path.getmtime)
+    if a.key:
+        files = [f for f in files if os.path.basename(f)[:-3] in (safe(a.key),)] or \
+                [f for f in files if safe(a.key) in os.path.basename(f)]
+    if a.recent:
+        files = [f for f in files if os.path.getmtime(f) > now() - parse_duration(a.recent)]
+    shown = 0
+    for f in files:
+        body = open(f).read()
+        if a.session and a.session not in body and not (a.agent and a.agent in body):
+            continue
+        print("=== %s (%s)" % (os.path.basename(f)[:-3], local(os.path.getmtime(f))))
+        print(body[-a.chars:])
+        shown += 1
+    if not shown:
+        print("(no notes)")
+
+
+def cmd_transcript(a):
+    path = a.path
+    if not os.path.exists(path):
+        path = find_agent_transcript(a.path) or find_transcript(a.path) or path
+    recs = []
+    with open(path, errors="replace") as f:
+        for line in f:
+            with contextlib.suppress(ValueError):
+                recs.append(json.loads(line))
+
+    def show(r):
+        msg = r.get("message") or {}
+        c = msg.get("content")
+        role = r.get("type")
+        items = [{"type": "text", "text": c}] if isinstance(c, str) else (c or [])
+        for x in items:
+            if not isinstance(x, dict):
+                continue
+            k = x.get("type")
+            if k == "text" and x.get("text", "").strip():
+                print("[%s] %s" % (role, x["text"].strip()[:a.width]))
+            elif k == "tool_use":
+                print("[tool %s] %s" % (x.get("name"), json.dumps(x.get("input"))[:a.width]))
+            elif k == "tool_result":
+                cc = x.get("content")
+                if isinstance(cc, list):
+                    cc = " ".join(y.get("text", "") for y in cc if isinstance(y, dict))
+                print("[result] %s" % str(cc).strip()[:a.width // 2])
+    if a.first:
+        for r in recs[:a.first]:
+            show(r)
+        print("...")
+    for r in recs[-a.last:]:
+        show(r)
+
+
+# ---------------------------------------------------------------------------------------------------- CLI
+def cmd_add(a):
+    prompt = " ".join(a.prompt) if a.prompt else ""
+    if a.file:
+        prompt = open(a.file).read() if a.file != "-" else sys.stdin.read()
+    kw = dict(label=a.label, priority=a.priority, owner=a.owner, fallback=a.fallback, runner=a.runner,
+              permission_mode=a.permission_mode, model=a.model, effort=a.effort, max_attempts=a.max_attempts,
+              cwd=os.path.abspath(a.cwd) if a.cwd else None, dsh_cwd=bool(a.cwd) or None,
+              timeout_s=parse_duration(a.timeout) if a.timeout else None,
+              not_before=parse_when(a.at) if a.at else None,
+              every_s=parse_duration(a.every) if a.every else None)
+    if a.resume_agent:
+        t = enqueue_resume_agent(a.resume_agent, message=prompt, priority=a.priority or 6, owner=a.owner,
+                                 label=a.label, cwd=os.path.abspath(a.cwd) if a.cwd else None)
+        with qlock():
+            t = load(t["id"])
+            t.update({k: v for k, v in kw.items() if v is not None and k not in ("cwd", "label", "priority")})
+            save(t)
+    elif a.resume:
+        if not prompt:
+            sys.exit("aq: --resume needs a message")
+        t = make_task(prompt, kind="resume-session", resume_session_id=a.resume, fork_session=a.fork, **kw)
+    else:
+        if not prompt:
+            sys.exit("aq: empty prompt")
+        t = make_task(prompt, **kw)
+    print(t["id"])
+
+
+def fmt_row(t):
+    st = t["status"]
+    if st == "pending" and t.get("not_before", 0) > now():
+        st = "wait " + local(t["not_before"])
+    flag = t.get("runner") if t.get("runner") == "dsh" else ("fb:dsh" if t.get("fallback") == "dsh" else "")
+    title = t.get("label") or t["prompt"].strip().splitlines()[0]
+    return "%-25s %-15s p%-2s %-6s %-2s %-2s %-11s %s" % (t["id"], st, t.get("priority"), flag, t["attempts"],
+                                                         t["limit_hits"], local(t["created"]), title[:60])
+
+
+def cmd_list(a):
+    blocked, s = is_blocked()
+    rpid = runner_pid()
+    print("runner: %s   claude: %s%s" % (("up pid %d" % rpid) if rpid else "DOWN",
+                                         ("BLOCKED until %s (%s)" % (local(s["blocked_until"]),
+                                                                     s.get("blocked_why", "")[:80]))
+                                         if blocked else "available", "   PAUSED" if s.get("paused") else ""))
+    print("%-25s %-15s %-3s %-6s %-2s %-2s %-11s %s" % ("id", "status", "pri", "mode", "at", "lh", "created",
+                                                       "label/prompt"))
+    for t in all_tasks():
+        if not a.all and t["status"] in ("done", "cancelled", "failed") and now() - t.get("updated", 0) > 86400:
+            continue
+        print(fmt_row(t))
+
+
+def cmd_show(a):
+    t = resolve(a.id)
+    if a.json:
+        print(json.dumps(t, indent=1))
+        return
+    for k in ("id", "label", "status", "kind", "runner", "fallback", "priority", "cwd", "owner", "attempts",
+              "limit_hits", "session_id", "resume_session_id", "last_error", "ran_on"):
+        print("%-17s %s" % (k, t.get(k)))
+    print("%-17s %s" % ("created", local(t.get("created"))))
+    if t.get("not_before"):
+        print("%-17s %s" % ("not_before", local(t["not_before"])))
+    print("--- prompt\n" + t["prompt"][:3000])
+    print("--- history")
+    for h in t.get("history", [])[-15:]:
+        print("  %s %s" % tuple(h))
+    if t.get("result"):
+        print("--- result\n" + t["result"][-3000:])
+    n = notes_for([t["id"], t.get("label")])
+    if n:
+        print("--- notes\n" + n[-2000:])
+
+
+def cmd_cancel(a):
+    with qlock():
+        t = resolve(a.id)
+        t["status"] = "cancelled"
+        event(t, "cancelled")
+        save(t)
+    if alive(t.get("pid")):
+        with contextlib.suppress(Exception):
+            os.killpg(t["pid"], signal.SIGTERM)
+    print("cancelled", t["id"])
+
+
+def cmd_retry(a):
+    with qlock():
+        t = resolve(a.id)
+        t["status"] = "pending"
+        t["not_before"] = 0
+        t["attempts"] = 0
+        if a.fresh:
+            t["session_id"] = None
+        if a.message:
+            t["message"] = " ".join(a.message)
+        event(t, "retry requested")
+        save(t)
+    print("pending", t["id"])
+
+
+def cmd_log(a):
+    t = resolve(a.id)
+    p = os.path.join(LOGS, t["id"] + ".log")
+    if a.follow:
+        os.execvp("tail", ["tail", "-n", "80", "-f", p])
+    with open(p, errors="replace") as f:
+        data = f.read()
+    print(data[-a.chars:])
+
+
+def runner_pid():
+    try:
+        with open(RUNLOCK) as f:
+            pid = int(f.read().strip() or 0)
+        return pid if alive(pid) else 0
+    except (OSError, ValueError):
+        return 0
+
+
+def cmd_run(_a):
+    ensure_dirs()
+    fh = open(RUNLOCK, "a+")
+    try:
+        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        sys.exit("aq: a runner is already running (pid %s)" % runner_pid())
+    fh.seek(0)
+    fh.truncate()
+    fh.write(str(os.getpid()))
+    fh.flush()
+    Runner().loop()
+
+
+def cmd_status(a):
+    blocked, s = is_blocked()
+    print(json.dumps(dict(s, runner_pid=runner_pid(), blocked=blocked,
+                          blocked_until_local=local(s.get("blocked_until"))), indent=1))
+
+
+def cmd_block(a):
+    until = parse_when(a.until)
+    put_state(blocked_until=until, blocked_why="manual: " + (a.why or ""), blocked_set=now())
+    print("claude blocked until", local(until))
+
+
+def cmd_unblock(_a):
+    put_state(blocked_until=0, blocked_why="manual unblock")
+    print("unblocked")
+
+
+def cmd_pause(a):
+    put_state(paused=not a.off)
+    print("paused" if not a.off else "resumed")
+
+
+def cmd_gc(a):
+    n = 0
+    for t in all_tasks():
+        if t["status"] in ("done", "cancelled", "failed") and now() - t.get("updated", 0) > parse_duration(a.older):
+            os.replace(tpath(t["id"]), tpath(t["id"]) + ".old")
+            n += 1
+    print("archived", n)
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="aq", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sp = ap.add_subparsers(dest="cmd", required=True)
+    p = sp.add_parser("add", help="queue a task (or a resume)")
+    p.add_argument("prompt", nargs="*")
+    p.add_argument("-f", "--file", help="read the prompt from a file ('-' = stdin)")
+    p.add_argument("--cwd")
+    p.add_argument("--label")
+    p.add_argument("-p", "--priority", type=int, help="higher runs first (default 5)")
+    p.add_argument("--owner")
+    p.add_argument("--fallback", choices=["none", "dsh"], help="dsh: run on dsh while Claude is limited")
+    p.add_argument("--runner", choices=["claude", "dsh"], help="dsh: always run on dsh")
+    p.add_argument("--resume", metavar="SESSION_ID", help="continue this Claude session with the prompt")
+    p.add_argument("--fork", action="store_true", help="with --resume: fork instead of appending to the session")
+    p.add_argument("--resume-agent", metavar="AGENT_ID", help="continue a dead background agent; prompt = message")
+    p.add_argument("--permission-mode")
+    p.add_argument("--model")
+    p.add_argument("--effort")
+    p.add_argument("--timeout", help="kill after (default 3h claude, 30m dsh)")
+    p.add_argument("--at", help="not before: +30m, 21:20, or ISO time")
+    p.add_argument("--every", help="recurring: run again this long after each success")
+    p.add_argument("--max-attempts", type=int)
+    p.set_defaults(fn=cmd_add)
+    p = sp.add_parser("list", help="list tasks")
+    p.add_argument("-a", "--all", action="store_true")
+    p.set_defaults(fn=cmd_list)
+    for name, fn in (("show", cmd_show), ("cancel", cmd_cancel)):
+        p = sp.add_parser(name)
+        p.add_argument("id")
+        if name == "show":
+            p.add_argument("--json", action="store_true")
+        p.set_defaults(fn=fn)
+    p = sp.add_parser("retry", help="back to pending (keeps its session unless --fresh)")
+    p.add_argument("id")
+    p.add_argument("message", nargs="*")
+    p.add_argument("--fresh", action="store_true")
+    p.set_defaults(fn=cmd_retry)
+    p = sp.add_parser("log")
+    p.add_argument("id")
+    p.add_argument("-f", "--follow", action="store_true")
+    p.add_argument("--chars", type=int, default=12000)
+    p.set_defaults(fn=cmd_log)
+    p = sp.add_parser("note", help="record resume state: aq note <task|label> \"state / next steps\"")
+    p.add_argument("key")
+    p.add_argument("text", nargs="*")
+    p.set_defaults(fn=cmd_note)
+    p = sp.add_parser("notes")
+    p.add_argument("key", nargs="?")
+    p.add_argument("--session")
+    p.add_argument("--agent")
+    p.add_argument("--recent", help="only notes touched within, e.g. 12h")
+    p.add_argument("--chars", type=int, default=4000)
+    p.set_defaults(fn=cmd_notes)
+    p = sp.add_parser("transcript", help="compact view of a Claude transcript (path, agent id or session id)")
+    p.add_argument("path")
+    p.add_argument("--last", type=int, default=40)
+    p.add_argument("--first", type=int, default=0)
+    p.add_argument("--width", type=int, default=600)
+    p.set_defaults(fn=cmd_transcript)
+    sp.add_parser("run", help="the runner loop (LaunchAgent)").set_defaults(fn=cmd_run)
+    sp.add_parser("status").set_defaults(fn=cmd_status)
+    sp.add_parser("hook", help="StopFailure hook entry (stdin JSON)").set_defaults(fn=cmd_hook)
+    sp.add_parser("sweep", help="queue resumes for agents that died at a limit").set_defaults(fn=lambda a: sweep())
+    p = sp.add_parser("block", help="treat Claude as limited until a time")
+    p.add_argument("until")
+    p.add_argument("--why")
+    p.set_defaults(fn=cmd_block)
+    sp.add_parser("unblock").set_defaults(fn=cmd_unblock)
+    p = sp.add_parser("pause", help="stop starting tasks (--off to resume)")
+    p.add_argument("--off", action="store_true")
+    p.set_defaults(fn=cmd_pause)
+    p = sp.add_parser("gc", help="archive finished tasks")
+    p.add_argument("--older", default="7d")
+    p.set_defaults(fn=cmd_gc)
+    a = ap.parse_args()
+    ensure_dirs()
+    a.fn(a)
+
+
+if __name__ == "__main__":
+    main()

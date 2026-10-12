@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.taiwong.agent-queue</string>
+  <!-- The agent-queue runner: drains ~/.claude/agent-queue with headless claude -p (or dsh), sleeps through
+       usage limits. Light: a Python poll loop; the work it starts is claude/dsh client processes, max 2. -->
+  <key>ProgramArguments</key>
+  <!-- /bin/bash stays the parent (no exec) on purpose: macOS privacy (TCC) lets a /bin/bash launchd job read
+       ~/Documents, but a job whose program is python3 cannot, and dsh and most task cwds live there. -->
+  <array>
+    <string>/bin/bash</string>
+    <string>-c</string>
+    <string>/usr/bin/python3 /Users/taiwong/.claude/agent-queue/bin/aq run; exit $?</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>/Users/taiwong/.nvm/versions/node/v22.23.1/bin:/Users/taiwong/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>HOME</key><string>/Users/taiwong</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>30</integer>
+  <key>ProcessType</key><string>Background</string>
+  <key>LowPriorityIO</key><true/>
+  <key>Nice</key><integer>5</integer>
+  <key>StandardOutPath</key><string>/Users/taiwong/.claude/agent-queue/launchd.log</string>
+  <key>StandardErrorPath</key><string>/Users/taiwong/.claude/agent-queue/launchd.log</string>
+</dict>
+</plist>
