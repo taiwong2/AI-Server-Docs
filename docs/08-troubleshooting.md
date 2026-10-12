@@ -282,3 +282,12 @@ Seen 2026-10-10: after a WSL restart (systemd=true), clash-sim came back with th
 Fix: `echo 1 > /proc/sys/fs/binfmt_misc/WSLInterop` as root (or register `:WSLInterop:M::MZ::/init:PF` if it is
 missing). Persisted in `/etc/binfmt.d/WSLInterop.conf`, and `C:\WSL\attv3_relay_task.ps1` re-enables it before each
 relay start.
+
+### `G:` shows ~17 GB free: that is C:, not the Drive quota
+
+Seen 2026-10-11: `dir G:\` / `Get-PSDrive G` report C:'s free space (Google Drive for desktop streams through its
+cache on C:), which looks like a nearly full Drive. The real quota is in DriveFS's cached account record:
+property `driveway_account` in `%LOCALAPPDATA%\Google\DriveFS\<account id>\metadata_sqlite_db` (protobuf path
+2/3/1: field 7 = limit, 9 = used, 8 = remaining). It was 10 TiB with 0.53 TB used. `model_archive.py status` prints
+it. What does run out is C:: anything written to G: waits in the cache on C: until uploaded, so pace big copies by
+C: free space and the upload backlog ([Model archive](23-model-archive.md)).

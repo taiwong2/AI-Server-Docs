@@ -47,6 +47,7 @@ live on **AI Server 2** — see [AI Server 2](docs/15-ai-server-2-battle-box.md)
 | Work on the box as a developer (Antoine), or manage developer access | [Developers](docs/12-developers.md) |
 | Install the DeepSeek Harness (`dsh`) on another device (Mac, Linux, Windows) | [dsh install guide](docs/21-dsh-install.md) |
 | Keep agent work going through Claude usage limits (queue, auto-resume after reset, dsh fallback, `aq note`) | [Agent queue](docs/22-agent-queue.md) |
+| Find, check or restore an archived Clash model (attacker / designer / BaseFinder checkpoints in Google Drive) | [Model archive](docs/23-model-archive.md) |
 | What `dsh` does (AI Server 2 default backend, LLM mode, idle unload), routing, troubleshooting | [DeepSeek Harness setup](docs/10-dsh-setup.md) |
 | Write a story, poem or lyrics with Gemma 4 | [Creative writing](docs/11-creative-writing.md) |
 | Use the Flash-Next LLM on AI Server 2 (Strix Halo, gufo; the dsh default), or turn it on/off (`llm-mode`) | [AI Server 2 (Strix Halo) LLM](docs/17-ai-server-2-llm.md) |
