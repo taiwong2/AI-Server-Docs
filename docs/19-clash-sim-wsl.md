@@ -158,3 +158,10 @@ hit MaxLife, and no one resubmitted it: clash-sim has no ssh, so there is no `--
   (drop-in `attv3-ractors.service.d/zz-split.conf`). When the A/B ends, stop the core units, remove zz-split.conf, and
   give pf the envs back.
 * clash-jobs `config.json`: `urgent_cpu_budget` 2 -> 6. Source: ClashEngineering `ops/aiserver/pf/`, `ops/aiserver/core_reach/`.
+
+**2026-10-12 07:25 UTC: core-reach arm paused; pf alone on clash-sim.** Capping the learners' CUDA allocator
+(`--mem-cap-mb`, CE 675d3e0) made pf OOM at 18 GB (it needs ~21 GB), and supervise looped 03:30-07:20 UTC with no
+steps. Now `pf_learners.json` runs pf uncapped on GPU1 (Vram 22000) and has core `enabled: false`. attv3-infer is back
+on GPU0. attv3-ractors-core and attv3-infer-core are stopped and disabled, and `zz-split.conf` is removed (pf 3x10 envs).
+The aborted core run was moved to `C:\WSL\runs\aborted-20261011-1952-attv3-ca4-rl-core`; `C:\WSL\core-sim.stop` is set.
+Restarting the arm needs ~21 GB free on GPU0, which means LM Studio off GPU0 (CPU-only) or a separate GPU.
