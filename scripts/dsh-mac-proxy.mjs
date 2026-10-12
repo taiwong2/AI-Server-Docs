@@ -111,8 +111,19 @@ async function ensureAis2() {
       return 'AI Server 2 is not serving Flash-Next (LLM mode off) and AI Server 1 serves no LLM. Start it: run `dsh` in a terminal, or `ssh ai-server-2 llm-mode on` (moves AI Server 2 Clash jobs off)';
     const r = await ssh2('llm-mode on --detach', 30000);
     log(`llm-mode on --detach (${session ? 'dsh session' : 'mode on, model down'}): ${(r.out || r.err).trim().slice(0, 120)}`);
+    // 2026-10-12: REFUSED (exit 3) = the model cannot fit now or a load just failed; LLM mode is off with a cooldown
+    if ((r.out + r.err).includes('REFUSED')) return (r.out || r.err).trim().split('\n').pop().replace(/^llm-mode on: /, '').slice(0, 500);
     const t0 = Date.now();
-    while (Date.now() - t0 < READY_S * 1000) { if (await ais2LlmUp()) return null; await sleep(5000); }
+    let chk = Date.now();
+    while (Date.now() - t0 < READY_S * 1000) {
+      if (await ais2LlmUp()) return null;
+      if (Date.now() - chk > 30000) {                 // llm-mode gave up (LLM mode off + cooldown): answer at once
+        chk = Date.now();
+        try { const j = JSON.parse((await ssh2('llm-mode status --json', 20000)).out);
+          if (!j.on && j.cooldown_until) return `AI Server 2 gave up loading Flash-Next: ${j.last_failure} Retry after ${j.cooldown_until}`; } catch {}
+      }
+      await sleep(5000);
+    }
     const st = await ssh2('llm-mode status', 20000);
     return `Flash-Next on AI Server 2 is not up after ${READY_S} s (LLM mode is on; it moves Clash jobs off, then loads ~60 s). ${st.out.split('\n')[0].slice(0, 160)}. Retry shortly`;
   })().finally(() => { ensuring = null; });

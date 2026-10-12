@@ -86,12 +86,23 @@ function On {
     return 0
   }
   Dim "dsh: LLM mode on AI Server 2: moving its Clash jobs off and loading Flash-Next (waiting up to $ReadyS s)"
-  if ((SshRun @('llm-mode', 'on', '--detach') 30).rc -ne 0) { Dim '  (could not start llm-mode on; still polling)' }
+  $r = SshRun @('llm-mode', 'on', '--detach') 30
+  # exit 3 / REFUSED (2026-10-12): the model cannot fit now (training hubs hold the memory) or a load just failed;
+  # LLM mode stays off and the box refuses turn-ons until its cooldown ends: say why at once, do not wait
+  if ($r.rc -eq 3 -or "$($r.out)" -match 'REFUSED') {
+    Remove-Item -LiteralPath $ModeF -ErrorAction SilentlyContinue
+    Say ("dsh: " + ("$($r.out)".Trim() -replace '^llm-mode on: ', '')); Say 'dsh: starting dsh anyway; flash-next requests get 503 until AI Server 2 can load it'
+    return 1 }
+  if ($r.rc -ne 0) { Dim '  (could not start llm-mode on; still polling)' }
   while ($true) {
     Start-Sleep -Seconds 10
     $el = [int]((Get-Date) - $t0).TotalSeconds
     $st = Status
     if ($st -and $st.model -eq 'up' -and $st.on -eq $true) { Mark; Say "dsh: Flash-Next on AI Server 2 ready ($el s)"; return 0 }
+    if ($st -and $st.on -eq $false -and $st.cooldown_until) {
+      Remove-Item -LiteralPath $ModeF -ErrorAction SilentlyContinue
+      Say "dsh: AI Server 2 gave up loading Flash-Next: $($st.last_failure) Starting dsh anyway; requests get 503 until $($st.cooldown_until)"
+      return 1 }
     if ($st) { $ll = "$($st.last_log)"; if ($ll.Length -gt 90) { $ll = $ll.Substring(0, 90) }
       Dim "  ${el}s: model $($st.model), MemAvailable $($st.mem_available_gb) GB; $ll" }
     else { Dim "  ${el}s: no answer from AI Server 2 (retrying)" }

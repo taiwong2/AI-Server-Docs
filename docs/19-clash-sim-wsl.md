@@ -170,3 +170,24 @@ Restarting the arm needs ~21 GB free on GPU0, which means LM Studio off GPU0 (CP
 `C:\WSL\runs\20261012-0037-attv3-ca4-rl-core`, initialised from pf 5,847,518 (`C:\WSL\core_init`; resume file set). Its
 learner runs on GPU0 :8894 (Vram 21000, uncapped; GPU0 is at ~23.3 GB with attv3-infer, offeval and attv3-infer-core).
 Actors are attv3-ractors-core 3x10, next to pf's attv3-ractors 3x10. pf is unchanged.
+
+**2026-10-12 ~20:40 UTC: C: full -> clash-sim root read-only; watchdog added.** About 58 GB of stale `%TEMP%\miniflare-*`
+dirs left C: with 3.8 GB free. The growing `ext4.vhdx` hit a full disk, `/` went `emergency_ro`, and
+`attv3-jractors@jr_hub` / `@jrcore_hub` died with 209/STDOUT at every restart. The AS2 jr hubs saw AS1 at 0 b/s for
+~2 h. Recovery: the junk was deleted (C: 83 GB free), then `wsl --terminate clash-sim`. The restart failed with
+CreateInstance/E_FAIL and took pp-antoine down too, so `wsl --shutdown`, hung `wsl.exe` killed, AI-AntoineEnv and
+AI-ClashSim-Attv3Relay restarted, and fleet-teach / fleet-teach2 stopped again. Both hubs then had AS1 at ~0.5 b/s
+again, next to local and AS2-jrpf.
+* **`\AI-ClashSim-Watch`** (S4U poopl, every 5 min): `C:\WSL\clashsim_watch.py` (ClashEngineering
+  `ops/aiserver/jr/clashsim_watch.py`, install `install_watch.ps1`). Below 20 GB free on C: it deletes `%TEMP%\miniflare-*`
+  idle > 2 d and `%TEMP%\wsl-crashes\*.dmp` > 1 d. It probes clash-sim over stdin (write test + `/` mount options;
+  an unparsable probe never acts). If the root is read-only or the probe hangs: terminate + restart the relay task,
+  only with C: >= 8 GB. If the distro then will not start and pp-antoine is down too: `wsl --shutdown` + AI-AntoineEnv.
+  A live pp-antoine is never stopped. It also restarts missing relay sockets and dead `attv3-jractors@*` units. Each
+  action has a 15 min cooldown. Log `C:\WSL\clashsim-watch.log`; disable with `C:\WSL\clashsim-watch.disabled`.
+* **AS2 `jr-hostwatch.timer`** (user, every 5 min): `ops/aiserver/jr/hub_hostwatch.py` reads the jr runs' metrics. An
+  `AS1-clashsim-*` host that delivered before but has been under 0.02 b/s for 15 min while the hub steps gets
+  `ssh ai-server ...clashsim_watch.py --restart-actors INST`. Log `~/clash-jobs/logs/jr-hostwatch.log`; disable with
+  `touch ~/.config/jr-hostwatch.disabled`.
+* Still on C:: `C:\Users\poopl\.lmstudio` holds 163 GB of LM Studio models, and AS1 serves no LLM since 2026-10-12.
+  Deleting them is the user's call.

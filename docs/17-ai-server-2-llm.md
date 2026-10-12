@@ -97,11 +97,31 @@ between the Clash CPU box and the LLM server. The user OK'd loading the model th
    | `requeue` | stop and queue again here; reruns after off (AS2-only measurements) | engspeed*, ca4cost* |
    | `freeze` | cgroup-freeze in place (no CPU, memory kept), thawed by off. Used for jobs with no checkpoint and AS2-bound paths | dsg*, pe-sur, render*, **default for unknown lanes** |
    | `stop` | stateless helper of something that moved | attv3-ractors-as2 |
+   | `stay` (training) | the joint-restart hubs: never frozen or moved | attv3-jr* |
+   | `requeue` / `freeze` + `short` | jr AS2 actors / jr gate evals (requeued only when the model needs the memory) | attv3-ractors-as2-jr*, jrgate* |
 
    A failed move falls back to `freeze` (logged with `ERROR`; retry with `llm-mode move ID`). Nothing is plainly killed.
 3. `keepawake-llmmode` (user unit) keeps `ai-power` from suspending.
 4. `sudo systemctl start llm.target` (memcheck: >= 104 GiB MemAvailable), then a `/health` check and a test chat
    (`reasoning_effort: none`). The 91 GiB model leaves ~24 GiB for the OS and the frozen jobs.
+
+**No deadlock (2026-10-12, ClashEngineering 0fd9c38).** A turn-on that cannot work is refused, never left hanging:
+- **Preflight:** before touching any job, `on` (and `on --detach`) adds up MemAvailable and the memory of every running
+  job whose lane action (or `short` action) frees it (`pf-hub`, `clashsim`, `requeue`, `stop`). `stay` and `freeze` keep
+  their memory: a frozen job holds all of it. If the sum is under memcheck's need (`/srv/llm/memcheck.sh`, 104 GiB),
+  the turn-on is refused with the jobs that hold the memory named.
+- **Load watchdog:** if the model is not up `LLM_LOAD_TRY_S` (180 s) after `on`, the lanes with `"short": "requeue"`
+  (`jrgate*`) are thawed and requeued. If it is still not up `LLM_FREE_TRY_S` (180 s) later, or `--wait-min` runs out,
+  LLM mode turns itself off: model stopped, jobs thawed, hold released. The idle watcher does the same when LLM mode
+  has been on ~11 min with no model and no `on` waiting.
+- **Cooldown:** a refusal or give-up blocks turn-ons for `LLM_COOLDOWN_MIN` (20). `on` / `on --detach` exit **3** with
+  `llm-mode on: REFUSED: <reason> Retry after <time>`. `status --json` has `cooldown_until` and `last_failure`. The AS1
+  relay (`as2_llm_relay.py`), the dsh proxies (`dsh-mac-proxy.mjs`, TPC `dsh-proxy.mjs`) and `dsh-llm-mode` (bash +
+  ps1) pass the reason straight back (503) and do not wait.
+- **Lanes:** `attv3-jr*` (the jrpf / jrcore training hubs) are `stay`, never frozen. `attv3-ractors-as2-jr*` are
+  `requeue`. `jrgate*` are `freeze` with `short: requeue`. While both hubs run (~28 GB), the model cannot fit, so a
+  request gets a fast refusal. Training keeps priority. To serve the LLM anyway, stop a hub on purpose.
+- Incident and recovery: [docs/08](08-troubleshooting.md#llm-mode-on-but-no-model-and-no-training-the-2026-10-12-deadlock).
 
 **off:** stop `llm.target`, thaw frozen jobs, clear the hold (held jobs start), stop the keep-awake. Moved jobs stay
 where they run.

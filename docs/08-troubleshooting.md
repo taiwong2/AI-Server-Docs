@@ -308,3 +308,33 @@ change to `llmmode.py`, restart the watcher (`systemctl --user stop llmmode-idle
 `for f in $FILES` in zsh does not word-split a string variable, so a deploy loop ran once with the whole list as one
 name, scp failed, and the server-side backups were skipped. Use `bash -c '...'` or a zsh array (`files=(a b c)`) for
 deploy loops, and check that the backups exist before overwriting.
+
+## LLM mode on, but no model and no training: the 2026-10-12 deadlock
+
+**Symptom:** `llm-mode status` says ON, `llm-gufo` restarts every 20 s (`MemAvailable 71 GiB < 104 GiB, not loading`),
+the attacker hubs and evals are `frozen`, and nothing answers. 2026-10-12 21:47-22:35 UTC (48 min, 131 gufo restarts).
+**Cause:** an interactive `dsh` on TPC (100.99.161.31, `dsh.cmd` at 21:47 UTC) ran `llm-mode on`. The joint-restart hubs
+`attv3-jrpf` / `attv3-jrcore` (~14 GB each) had no lane entry, so they got the default `freeze`, and a frozen job keeps
+all its memory. The model could never fit, and the old `on` gave up after 25 min but left LLM mode on with every job
+frozen. **Fix (ClashEngineering 0fd9c38):** `llm-mode on` now refuses at once, touching nothing, when MemAvailable plus
+the memory of the jobs whose action frees it stays under memcheck's need. If the load is still not up after 3 min, it
+requeues the lanes marked `"short"` (`jrgate*`). If it is still not up 3 min after that, it turns LLM mode off (model
+stopped, jobs thawed, hold released). Both cases set a 20 min cooldown (`LLM_COOLDOWN_MIN`). During it, `on` and
+`on --detach` exit 3 with `REFUSED: <reason>`, and the relay, the dsh proxies and `dsh-llm-mode` show that reason
+right away (503) instead of waiting. The `attv3-jr*` lanes are `stay`, so training is never frozen. While both hubs
+run, the model cannot fit and the answer is a clear refusal. **By hand:** `ssh ai-server-2 llm-mode off`.
+
+## clash-sim actors at 0 b/s while `wsl -l -v` says Running: C: full, root read-only (2026-10-12)
+
+**Symptom:** the AS2 jr hubs show `AS1-clashsim-jr_hub` / `-jrcore_hub` at 0.00 b/s.
+`systemctl status attv3-jractors@*` in clash-sim shows `status=209/STDOUT`, `ls /opt/clash/attv3_logs` gives
+`Input/output error`, and `mount` shows `/` with `emergency_ro`. **Cause:** AI Server 1's C: had 3.8 GB free. About 58 GB
+of stale `%TEMP%\miniflare-*` dirs (wrangler dev, Oct 4-6) had built up, so clash-sim's growing `C:\WSL\clash-sim\ext4.vhdx`
+hit a full disk and ext4 went read-only (~20:40 UTC). **Fix:** free C: first. Then `wsl --terminate clash-sim` and
+`schtasks /run /tn AI-ClashSim-Attv3Relay`. If clash-sim then fails with `Wsl/Service/CreateInstance/E_FAIL` and
+pp-antoine is down too, the WSL VM is dead: `wsl --shutdown`, `taskkill /F /IM wsl.exe` (hung clients), then
+`schtasks /run /tn AI-AntoineEnv` and the relay. Then stop fleet-teach / fleet-teach2 again. **Now automatic:**
+`\AI-ClashSim-Watch` (C:\WSL\clashsim_watch.py, every 5 min, log `C:\WSL\clashsim-watch.log`) cleans that junk below
+20 GB free, restarts a read-only or hung clash-sim (only with C: >= 8 GB, and `wsl --shutdown` only when pp-antoine is
+already down), and restarts dead relays and jractors. AS2's `jr-hostwatch.timer` asks it to restart an AS1 host
+that a hub sees at 0 b/s for 15 min ([docs/19](19-clash-sim-wsl.md)).

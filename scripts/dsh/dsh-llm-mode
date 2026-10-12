@@ -40,13 +40,24 @@ case "${1:-status}" in
       echo "dsh: Flash-Next on AI Server 2 (LLM mode on since $(printf '%s' "$st" | jget since))" >&2; exit 0
     fi
     dim "dsh: LLM mode on AI Server 2: moving its Clash jobs off and loading Flash-Next (waiting up to $READY_S s)"
-    bounded 30 "${SSH[@]}" llm-mode on --detach >/dev/null 2>&1 || dim "  (could not start llm-mode on; still polling)"
+    out=$(bounded 30 "${SSH[@]}" llm-mode on --detach 2>&1); rc=$?
+    # exit 3 / REFUSED (2026-10-12): the model cannot fit now (training hubs hold the memory) or a load just failed;
+    # LLM mode stays off and the box refuses turn-ons until its cooldown ends: say why at once, do not wait
+    if [ "$rc" -eq 3 ] || printf '%s' "$out" | grep -q REFUSED; then
+      rm -f "$MODE_F"; echo "dsh: ${out#llm-mode on: }" >&2
+      echo "dsh: starting dsh anyway; flash-next requests get 503 until AI Server 2 can load it" >&2; exit 1; fi
+    [ "$rc" -ne 0 ] && dim "  (could not start llm-mode on; still polling)"
     while :; do
       sleep 10
       el=$(( $(date +%s) - t0 ))
       st=$(bounded 20 "${SSH[@]}" llm-mode status --json 2>/dev/null | tr -d '\n')
       if [ "$(printf '%s' "$st" | jget model)" = up ] && [ "$(printf '%s' "$st" | jget on)" = true ]; then
         mark; echo "dsh: Flash-Next on AI Server 2 ready (${el} s)" >&2; exit 0; fi
+      if [ "$(printf '%s' "$st" | jget on)" = false ] && [ -n "$(printf '%s' "$st" | jget cooldown_until)" ] \
+         && [ "$(printf '%s' "$st" | jget cooldown_until)" != null ]; then
+        rm -f "$MODE_F"
+        echo "dsh: AI Server 2 gave up loading Flash-Next: $(printf '%s' "$st" | sed -n 's/.*"last_failure": "\([^"]*\)".*/\1/p') Starting dsh anyway; requests get 503 until $(printf '%s' "$st" | jget cooldown_until)" >&2
+        exit 1; fi
       if [ -n "$st" ]; then dim "  ${el}s: model $(printf '%s' "$st" | jget model), MemAvailable $(printf '%s' "$st" | jget mem_available_gb) GB; $(printf '%s' "$st" | jget last_log | cut -c1-90)"
       else dim "  ${el}s: no answer from AI Server 2 (retrying)"; fi
       if [ "$el" -ge "$READY_S" ]; then

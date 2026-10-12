@@ -314,6 +314,10 @@ def activate(profile):
         return (f"this endpoint may switch AI Server 2's LLM mode on at most {pc['activations_per_day']} times a day, "
                 "and that budget is used up; the model is off. It resets at midnight (AI Server 1 time)")
     rc, out, err = ssh_box("llm-mode on --detach")
+    if rc == 3 or "REFUSED" in out:
+        # 2026-10-12: the model cannot fit now (training hubs hold AI Server 2's memory) or a load just failed; LLM
+        # mode stays off and AI Server 2 refuses turn-ons until its cooldown ends
+        return out.strip().splitlines()[-1].replace("llm-mode on: ", "", 1)[:500] if out.strip() else "llm-mode on refused"
     if rc != 0:
         return f"llm-mode on failed on AI Server 2 (rc {rc}): {(err or out).strip()[:300]}"
     usage_add(profile, activations=1)
@@ -366,11 +370,17 @@ def ensure_ready(profile):
             if err:
                 return 503, err, 3600
     # wait for the model (outside the lock: other requests may wait too)
-    t0 = time.time()
+    t0, chk = time.time(), time.time()
     while time.time() - t0 < CFG["wait_ready_s"]:
         if as2_up(max_age=0):
             log(f"[{profile}] AI Server 2 model up after {time.time() - t0:.0f} s")
             return None
+        if time.time() - chk > 30:                   # llm-mode gave up (off + cooldown): answer at once
+            chk = time.time()
+            st = llm_status() or {}
+            if not st.get("on") and st.get("cooldown_until"):
+                return 503, (f"AI Server 2 gave up loading Flash-Next: {st.get('last_failure')} "
+                             f"Retry after {st['cooldown_until']}"), 1200
         time.sleep(5)
     st = llm_status() or {}
     return 503, ("Flash-Next is still loading on AI Server 2 (LLM mode on; it first moves or freezes Clash jobs, then "
