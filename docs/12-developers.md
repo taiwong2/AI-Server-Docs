@@ -29,9 +29,11 @@ with the same text:
   apt packages.
 - **An LLM endpoint**, OpenAI-compatible, at the same URLs as the old LM Studio: inside his machine
   `http://127.0.0.1:1234/v1`, over the tailnet `http://100.71.113.77:1234/v1`. Since 2026-10-12 it is AI Server 1's
-  relay to the uncensored **Flash-Next on AI Server 2** (any model id; 262,144-token context; no key). Caps: 8,192
-  output tokens per request, one at a time, 6/min, 60/h, 400/day, 3 h of model time a day; over-long or repeated
-  prompts fail at once. LM Studio and the 27B are gone from this box. Details: [docs/24](24-as1-no-llm.md).
+  relay to the uncensored **Flash-Next on AI Server 2** (any model id; 262,144-token context; no key). **No limits**
+  (the user, 2026-10-13): `C:\AI-Server\state\as2-llm-relay\config.json` lifts every dev-profile cap (output tokens,
+  rate, daily requests, model time, LLM-mode turn-ons, the repeated-prompt block via `repeat_guard: false`). The only
+  check left is physical: a prompt longer than the 262k context fails at once. It is one generation at a time (the model
+  serves one session), so a request may wait up to 30 min behind the user's dsh. The model also accepts images. LM Studio and the 27B are gone from this box. Details: [docs/24](24-as1-no-llm.md).
 - **SSH** with `ssh -p 2222 antoine@100.71.113.77`. It is key-only, always up,
   and TCP forwarding is allowed.
 - **Port 8899** on `100.71.113.77` forwards into your machine, for your own

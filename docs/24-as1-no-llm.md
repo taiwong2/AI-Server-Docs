@@ -33,7 +33,7 @@ sees it. Stdlib Python, task as poopl (S4U) at startup, restart on failure; `sta
 
 | profile | listens | for | limits |
 |---|---|---|---|
-| `dev` | `127.0.0.1:1234`, `100.71.113.77:1234` | Antoine: pp-antoine (its firewall allows loopback 1234) and his tailnet devices (sharee rule allows 1234). Replaces LM Studio's old :1234 | 8,192 output tokens (larger `max_tokens` lowered), 1 request at a time (others wait 120 s, then 429), 6/min, 60/h, 400/day, 3 h of model time a day, LLM mode switched on at most 4 times a day |
+| `dev` | `127.0.0.1:1234`, `100.71.113.77:1234` | Antoine: pp-antoine (its firewall allows loopback 1234) and his tailnet devices (sharee rule allows 1234). Replaces LM Studio's old :1234 | **No limits since 2026-10-13** (the user): `state\as2-llm-relay\config.json` lifts the output, rate, daily, model-time and turn-on caps and sets `repeat_guard: false`. 1 request at a time (the model serves one session; others wait up to 30 min). Only a prompt over the 262k context is rejected at once |
 | `internal` | `127.0.0.1:1240` | AS1's own consumers. Not reachable from pp-antoine | 32,768 output tokens, 2 at a time, 60/min |
 
 Both profiles: any model id is answered by `qwen3.8-flash-next-uncensored`. Endpoints `GET /health`, `/status`
