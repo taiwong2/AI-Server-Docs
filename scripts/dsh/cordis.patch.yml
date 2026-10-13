@@ -8,6 +8,7 @@
       tai-ai-server:
         api: openai-completions
         baseURL: http://127.0.0.1:1235/v1
+        defaultInput: [text, image]   # Flash-Next has vision (mmproj on AS2 gufo, 2026-10-13)
         headers:              # keyless local proxy (it holds the real server keys); pi-ai needs some Authorization
           Authorization: Bearer local-proxy
         models:

@@ -178,6 +178,7 @@ llm-pi-ai:
     tai-ai-server:
       api: openai-completions
       baseURL: http://127.0.0.1:1235/v1
+      defaultInput: [text, image]   # Flash-Next has vision (2026-10-13); without it dsh refuses image attachments
       models:
         - id: qwen3.8-27b-uncensored
         - id: qwen3.8-flash-next-uncensored

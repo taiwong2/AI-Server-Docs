@@ -45,7 +45,7 @@ Find what keeps the model busy: `ss -tn state established '( sport = :8080 )'` (
 | Endpoint | `http://100.65.60.112:8080/v1` (tailnet; `ai-server-2:8080`). OpenAI Chat/Completions/Responses and Anthropic `/v1/messages`, streaming, tools. `/health`, `/ready`, `/metrics` |
 | Auth | Bearer key. On the box: `/etc/ai-server-2/llm.env` (`LLM_API_KEY=`, root 600). On the Mac: `~/.config/ai-server-2/llm_api_key` (600). Every route needs it, including `/health`. |
 | Thinking | On by default (Qwen `xhigh`). Per request: `"reasoning_effort": "none"` disables it |
-| Vision | Not loaded (no mmproj on the box; gufo picks up `mmproj-BF16.gguf` beside the model if you add it) |
+| Vision | **On since 2026-10-13**: `--mmproj .../UD-Q4_K_XL/mmproj-Qwen3.8-Flash-Next-BF16.gguf` (huihui-ai repo, 907,543,008 B, sha256 b1a82259...49bd0) in `/etc/containers/systemd/llm-gufo.container` (backup `/srv/llm/llm-gufo.container.bak-20261013-vision`). Tested: a red/blue PNG is described correctly. dsh clients need `defaultInput: [text, image]` on the provider (docs/10) |
 | Uncensored check | Answered requests that stock models refuse (lock-picking steps, a profane roast) with no refusal; the shard hashes match huihui's abliterated files, not unsloth's |
 
 ### Memory (measured)
@@ -236,7 +236,7 @@ curl -s http://ai-server-2:8080/v1/models -H "Authorization: Bearer $K"
   `llm.target` existed (it then failed safely on the half-downloaded shard).
 - **Idle numbers at depth** (8k-256k with the box idle) were not measured: training had priority. Expect
   prefill ~1,500-1,600 and decode ~35-43 tok/s.
-- Vision (mmproj) not installed.
+- Vision: installed 2026-10-13 (see the table above). Edit the Quadlet source, not the generated unit in /run.
 - The box is on 20 MHz Wi-Fi (~10-12 MB/s): the 114 GB download took ~5 h with two outages. Wire `enp97s0`.
 
 **2026-10-12: dsh-mac-proxy also asks AS2 whether LLM mode is on.** It reads `~/clash-jobs/llm_mode.json` over ssh
