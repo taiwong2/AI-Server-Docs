@@ -146,6 +146,13 @@ A `running` job whose PID is gone, or which exceeds `job_timeout_minutes`
 (default 180), is requeued — or failed if it is out of attempts. This happens at
 the top of every tick, so a killed runner never wedges the queue.
 
+**Per-job timeout and tree kill (2026-10-13).** The limit is `job_timeout_minutes(job)`: `job["timeout_minutes"]`
+when set, else for a `clashlearner` its `MaxLife` arg / 60 + 30 min, else the config default. A timed-out job's
+whole process tree is killed (`taskkill /T /F`), in the runner's wait and in `reap`. Before this, backlog learners
+with `MaxLife` 96 h were killed at 180 min and only the powershell launcher died: the python learner stayed on
+GPU0 holding its lease (an orphan, 23.7 GB + 12.5 GB WDDM shared memory) and the retry stacked a second learner.
+Backup of the previous version: `scripts\jobqueue.py.bak-20261013-gpuops`.
+
 ## Configuration
 
 `C:\AI-Server\state\jobqueue.json`, re-read every tick — no restart needed.
