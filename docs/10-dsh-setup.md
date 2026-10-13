@@ -504,3 +504,16 @@ curl -s localhost:1235/health                                # {"status":"ok","a
 **Bare `dsh` (2026-10-12):** typing `dsh` with no arguments opens the interactive browser UI (`--profile web`), after
 turning on AI Server 2's LLM mode like any terminal session. `dsh "task"` stays a one-shot headless run. Before this
 fix a bare `dsh` failed with `error: --profile <name> is required` (dsh itself has no default profile).
+
+## Open dsh = model stays loaded (2026-10-13)
+
+User rule: "if the dsh window is open and the tab is open it cannot be unloaded".
+- AI Server 2 `llm-mode`: a keepalive touch now holds the model with no cap (`TOUCH_HOLD_MIN` 0, ClashEngineering
+  a55d029; `LLM_TOUCH_HOLD_MIN` > 0 brings the old 60 min cap back). The 30 min idle unload only runs once touches stop.
+- TPC scheduled task `dsh-tab-keepalive` (every 2 min, `%USERPROFILE%\deepseek-harness\bin\dsh-tab-keepalive.ps1`):
+  when any connection is open to dsh web on 127.0.0.1:3080 (a browser tab or a tunnel), it runs `dsh-llm-mode.ps1 on`
+  (touch when up, load the model when not). Log `%USERPROFILE%\dsh-tab-keepalive.log`. It also covers a dsh web started
+  with redirected I/O (e.g. `dsh-logged.cmd`), which skips the terminal keepalive.
+- gufo request limit raised from 8 MiB to 256 MiB (`--max-request-bytes 268435456` in
+  /etc/containers/systemd/llm-gufo.container, backup /srv/llm/llm-gufo.container.bak-20261013-body). Long chats and
+  image attachments got HTTP 413 "payload_too_large", shown in dsh as model proxy errors.
