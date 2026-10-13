@@ -102,14 +102,23 @@ CE 33bab23 (`ops/strixhalo/disk_guard.py`, `keepers.py`, `ops/aiserver/jr/clashs
 | hub kill (clash-sim path, first live test) | clash-sim smoke hub `rk-smoke-cs` (run_keeper_smoke.py, Restart=no) registered live, `systemctl kill -s KILL` at step 9000 | run_keeper: "stalled 903s at step 9000: restarted rk-smoke-cs", then actors reattached (`clashsim_watch --restart-actors dgsmoke`) | 02:09:01 | 02:24:09 stepping again (resumed from ckpt 7000) | **908 s** |
 | hub kill (AS2 path, U2) | AS2 smoke unit `rk-smoke-hub` | run_keeper | 01:21:07 | 01:35:49 | 883 s |
 | learner gone | not force-killed: the only learners are gen2's (AI-PfLearnerKeeper entries pf/8891, core/8894). Natural exit used instead: learner bc683273a0fd ended | AI-PfLearnerKeeper resubmitted 78a43974e59e | 00:23:00 | 00:24:03 | **63 s** to resubmit (the hub waits up to 900 s and re-inits) |
+| learner gone (verify, natural MaxLife exit of both gen2 learners) | jobs 623b83a2ca6a (pf, :8891) / 78a43974e59e (core, :8894) ended, watched read-only every 30 s | AI-PfLearnerKeeper resubmitted c11b9bb3e189 / 9d2a83476147 at 03:16:02 / 03:16:07; gen2b metrics stepping 03:16:16, gen2a 03:17:45 | 03:14:20 | 03:17:45 | **101-106 s** to resubmit (2-min task cadence), **115 s / 205 s** exit to hub stepping |
 
 **What survives an outage now / what still needs an agent:**
 1. Dead actor hosts on clash-sim (any `attv3-jractors@*`, gen2's too), a read-only or hung clash-sim, a missing relay: healed in <= 5-15 min.
 2. A stalled registered run: resumed from its newest checkpoint in about 15 min, actors reattached, gate evals submitted once per threshold.
 3. A full disk on AS2, clash-sim or AS1 C: is cleaned of junk in <= 5 min. Real data growth shows as failing on the Training page.
 4. A dead keeper (timer, hung pass, llmmode-idle, AS1 task) is restarted by the collector within about 15 min. Learners are resubmitted within 2 min.
-5. Still needs an agent: gen2 is not registered with run_keeper (attacker-owner ack). Gate decisions (promote / kill an arm) and new work are judgement.
+5. Still needs an agent: gen2 is registered with run_keeper in **dry-run** only (gen2a/gen2b, attacker-owner ack 02:25Z; live after a clean dry-run log, actors/gates not set). Gate decisions (promote / kill an arm) and new work are judgement.
 6. Also still open: Colab re-provisioning needs the Mac awake (token only there), `\AI-LLMRelay` has no watchdog, and crit-level disk growth needs a human.
+
+## Outage verify (2026-10-13 03:20Z)
+
+All five failure classes healed with no agent (table above): actor host 120 s, full temp disk 276 s, keeper death
+800 s, hub kill 883 s (AS2) / 908 s (clash-sim), learner exit to hub stepping 115-205 s (natural exit of both gen2
+learners, observed read-only). The Training page's `keepers.json` lists all 12 keepers (11 ok, pf_watch disabled on
+purpose). `run_keeper.py status` now lists only registered runs (CE b7cf953); gen2a/gen2b show stepping in dry-run.
+Not covered by any keeper: `\AI-LLMRelay` (pp-antoine side), colab-watch (no heartbeat; Mac-only).
 
 ## Audit: what needs an agent today
 
