@@ -26,3 +26,12 @@ It never restarts a run: `run_keeper.py` (run-keeper.timer) resumes registered r
 New entries are `mode: dry-run` until checked (`backlog.py status` shows the command they would run).
 
 Commands (AS2): `python3 ~/ClashEngineering/ops/strixhalo/backlog.py status | tick --dry-run | validate`.
+
+## 2026-10-13 B2: entries live
+
+* `gen2-eval-{500k,1m}-{orbit22,lib}` are `live` (evalpol, clash-sim, 4 CPUs; three_star is reported next to G).
+* `sdgen-gen2a-g0` (gen2a >= 500k) and `sdgen-gen2a-g1` (>= 1M): 1,000 search-distill specs each on clash-sim, 6 CPUs,
+  ~10 h, outputs pulled to AS2 `~/ClashRuns/sdistill/gen2a_g{0,1}`.
+* gen2 actor capacity outside the backlog (self-managing): see docs/19 (2026-10-13 ~02:05 UTC).
+* Still missing: a Mac pass for Colab entries, the spell-mask anneal A/B arms, the reward3 winner arm, the
+  sd-treatment learner (needs a free 3090).

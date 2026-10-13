@@ -191,3 +191,18 @@ again, next to local and AS2-jrpf.
   `touch ~/.config/jr-hostwatch.disabled`.
 * Still on C:: `C:\Users\poopl\.lmstudio` holds 163 GB of LM Studio models, and AS1 serves no LLM since 2026-10-12.
   Deleting them is the user's call.
+
+**2026-10-13 ~02:05 UTC: gen2 hubs reachable on the tailnet; more gen2 actors (backlog B2).** gen2 got ~0.47 b/s per
+arm and the 3090s idled. Arms, hubs and learners untouched:
+* New S4U tasks (ClashEngineering `ops/aiserver/gen2/mk_gen2_relays.ps1`, start at boot): `\AI-ClashSim-Gen2aRelay`
+  `tcp_to_wsl.py 0.0.0.0:8896 /run/clash/hub.sock` (arm A) and `\AI-ClashSim-Gen2bRelay` `0.0.0.0:8899
+  /run/clash/gen2b_hub.sock` (arm B); firewall rules `clash-sim-core-hub` (8896) / `clash-sim-gen2b-hub` (8899), tailnet
+  only. `\AI-ClashSim-CoreRelay` (core-reach, retired) is disabled; :8896 is the port the tailnet ACL opens to tag:colab.
+  The GEN2.md ":8893" relay does not exist.
+* clash-sim actors: `jractors-hub.env` / `jractors-gen2b_hub.env` JR_PROCS 6 -> 7 (clash-sim was 25 % idle).
+* AS2 clashjobs `ractors-as2-gen2a` (902c7751ab6b, -> :8896) / `ractors-as2-gen2b` (9d2636010d86, -> :8899), 8 CPUs
+  each: parked while LLM mode is on, start when it turns off, requeued when it turns on (lane policy
+  `attv3-ractors-as2-jr*`).
+* Colab CPU actors (`ops/aiserver/gen2/colab_actors.sh`, tag:colab -> :8896) are BLOCKED: the tailnet auth key
+  `~/.clashlab/colab_tskey` on the Mac is rejected ("invalid key"). A new reusable, ephemeral, tag:colab auth key from
+  the Tailscale admin console is needed (user).
