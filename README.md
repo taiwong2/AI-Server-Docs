@@ -27,7 +27,8 @@ The three things that make it different from a laptop you SSH into:
 
 **Clash of Clans system (since 2026-10-10):** this machine does only its **GPU
 training**. All Clash CPU work and the ClashLab website (http://ai-server-2:8787)
-live on **AI Server 2** — see [AI Server 2](docs/15-ai-server-2-battle-box.md).
+live on **AI Server 2** — see [AI Server 2](docs/15-ai-server-2-battle-box.md). Since 2026-10-13 AI Server 2 also trains
+attacker arms on its iGPU when the 3090s are taken (LLM mode still takes precedence).
 
 ---
 

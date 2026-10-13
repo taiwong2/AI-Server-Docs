@@ -15,6 +15,22 @@ server and is reached through ClashLink and the job queue. The same box can also
 | Sudo | `taiwong` has passwordless sudo |
 | Runbook (source of truth) | ClashEngineering `ops/strixhalo/README.md`: `push_from_mac.sh`, `bootstrap.sh`, `preflight.sh` |
 
+> **2026-10-13 (user: "you can use ai server 2 for training now"): AI Server 2 also trains.** An attacker A/B arm
+> that waits for a 3090 can run here with its PPO learner on the Strix Halo iGPU (Radeon 8060S, gfx1151, ROCm torch
+> `~/attv3_rock`): ClashEngineering `ops/strixhalo/jobs/as2_learner.sh` starts the learner
+> (`clashlab.train.learner_job --no-lease`, 127.0.0.1:PORT) and the arm in **one** clashjob. Speed: 369 s per 3-epoch
+> 16.4k-decision update (a 3090: ~90 s; 16 CPU threads: ~2,600 s), peak 28.3 GB. The iGPU's memory is GTT system RAM:
+> the job's cgroup does not count it, so the learner has a torch allocator cap (AS2_LEARNER_CAP_MB, default 32000) and
+> clashjobs adds `/sys/class/kfd/kfd/proc/PID/vram_*` to the job's memory. **LLM mode takes precedence**: lanes
+> `attv3-as2train*` are `running: requeue, new: park` in `llm_lanes.json`, so `llm-mode on` stops the job (final
+> checkpoint, all memory incl. GTT freed) and it resumes after `off`. amp only (the fp32 update failed the CPU gradient
+> check; the learner refuses it). Set `CLASHLAB_LEARNER_UPDATE_TIMEOUT=1800` for the arm (an iGPU update plus the
+> queued second one outlasts the 300 s default; the client then times out and reconnects). First run: backlog entry `gen3zone-as2` (gen3zone A/B arm, port 8907, worktree
+> `~/ce_gen3zone_as2`). Details: ClashEngineering `docs/attacker/LEARNER_SPEED.md` "AI Server 2 iGPU learner".
+> Gotcha for a new AS2 run worktree: besides `.venv` / `.toolchain` / `extracted`, symlink every entry of
+> `~/ClashEngineering/artifacts/` and `artifacts/validation/` that the worktree lacks (libg.so, the engine id map),
+> else run.py dies in GameData looking for the APK.
+
 ## The split (since 2026-10-10): AI Server 1 trains, AI Server 2 does every Clash CPU job
 
 The user's decision: AI Server 1 (this handbook's machine, 2x RTX 3090) does **only GPU training**. Every Clash CPU
@@ -32,7 +48,7 @@ designer lanes `designer_gen*`, `designer_ar*`).
 | scrapers (scrape2) | AI Server 1 (`run_scrape2.ps1`) | AI Server 2 (`jobs/scrape.sh`; polite 1.5 s, robots.txt, no Cloudflare evasion, never Supercell servers) |
 | ClashLab site build, base-image renders (`bases render-pack`), serving :8787 | Mac + box build, AI Server 1 serves | AI Server 2 builds and serves (main copy `~/clashlab-www`); AI Server 1's :8787 redirects |
 | ClashLink hub | AI Server 1 | AI Server 1 (unchanged, see below) |
-| PPO learner | AI Server 1 | AI Server 1 (unchanged) |
+| PPO learner | AI Server 1 | AI Server 1; since 2026-10-13 also AI Server 2's iGPU for arms waiting on a 3090 (`as2_learner.sh`, see the note above) |
 
 ClashEngineering `ops/README.md` is the short version for agents (rules + commands).
 

@@ -20,6 +20,11 @@ slot is free (at most 3 per pass, one per host):
 - clash-sim: runner budget 14 minus running and queued jobs' CPUs, backlog's own <= 12 -> `clashsim submit`.
 - AS2: while LLM mode is on, only what clashjobs would admit anyway (0-CPU / stay lanes); it never calls `llm-mode` and
   never preempts the LLM. Entries with `"launcher": ["clashjobs", "clashsim"]` go to clash-sim instead.
+- AS2 iGPU training (2026-10-13): an entry with `"launcher": ["clashjobs"]`, lane `attv3-as2train-*` and
+  `cmd` = `bash CE/ops/strixhalo/jobs/as2_learner.sh bash CE/ops/aiserver/gen2/gen3_run.sh` runs an arm and its
+  learner together on AI Server 2 (env `AS2_LEARNER_PORT`, `AS2_LEARNER_CE`, `AS2_LEARNER_CAP_MB`, `GEN3_LEARNER=
+  http://127.0.0.1:PORT`, `GEN3_HUB`, `GEN3_LAYOUT`, `GEN3_ACTOR_KEY`, `GEN3_HOST`; `mem_gb` = arm + 4 + the GTT cap).
+  Example: `gen3zone-as2`. LLM mode requeues it (docs/15).
 - Colab: only from a host with the colab CLI (the Mac), <= 20 units/day. Not launched from AS2.
 
 It never restarts a run: `run_keeper.py` (run-keeper.timer) resumes registered runs and submits their gate evals.
