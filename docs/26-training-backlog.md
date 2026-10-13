@@ -35,3 +35,22 @@ Commands (AS2): `python3 ~/ClashEngineering/ops/strixhalo/backlog.py status | ti
 * gen2 actor capacity outside the backlog (self-managing): see docs/19 (2026-10-13 ~02:05 UTC).
 * Still missing: a Mac pass for Colab entries, the spell-mask anneal A/B arms, the reward3 winner arm, the
   sd-treatment learner (needs a free 3090).
+
+## 2026-10-13 verify: gates (ClashEngineering 59ed28b, f45c5dc)
+
+* `ops/strixhalo/backlog_gates.py`, run inside every `tick` before the launch step. A gate (top-level `"gates"` in the
+  registry or the overlay) fires once when all its `after` entries are done: per arm, paired G vs the baseline
+  (`<dir>/<policy>.jsonl` rows from `evalpol run --out`), 95 % cluster-bootstrap CI over bases; `retire` if the CI is
+  below 0, else `keep` (`inconclusive` under `min_pairs`). 3-star rate of arm and baseline + CI of the difference next
+  to G. It then holds / releases the arm's `on_retire` / `on_keep` entries in the overlay (a released entry starts in
+  the same pass). It never stops a run: for an arm another stream owns it logs a recommendation and appends to
+  `~/clash-jobs/state/gate_notes.jsonl`.
+* Decisions: kind `gate` in `backlog_log.jsonl`, `gates` in `backlog_state.json` / `~/clashlab-www/backlog.json`,
+  `backlog.py status` prints them.
+* Registry gate `gen2-1m`: after `gen2-eval-1m-{orbit22,lib}`, baseline `init`, min 40 pairs; a retired arm holds its
+  `sdgen-gen2{a,b}-g1` corpus. New entries `sdgen-gen2b-g0` (>= 500k) and `-g1` (>= 1M, after the 1M evals).
+* Verified 02:27Z with no agent in the loop (timer passes only): overlay entry `bl-sim-ev` ran, was marked done, gate
+  `sim-gate` (fake arm = real jrgate1 orbit22 init rows minus 0.5 G, 224 pairs / 112 bases) logged `retire`
+  (CI [-0.500, -0.498]) and released `bl-sim-next`, which launched 1.0 s later in the same pass. Sim entries removed.
+* Throughput note: gen2 clash-sim actors 6 -> 7 procs did not raise battles/s (sps flat ~72 per arm; clash-sim ~97 %
+  CPU, hub policy on CPU 81 -> 89 ms/decision). The 3090s show 0-3 % util (learner updates only).
