@@ -47,7 +47,7 @@ First live table (2026-10-13 00:40Z): 7/8 ok, pf_watch disabled, every last_chec
 | actor restarts AS1 clash-sim | AI-ClashSim-Watch (`attv3-jractors@jr_hub/jrcore_hub`, distro ro/hang repair, relay) + jr-hostwatch on AS2 (0 b/s -> `--restart-actors`) | gen2 actor instances not in clashsim_watch's INSTANCES; attv3-actorwatch timer disabled | U2 (actor hosts in the registry) |
 | actor restarts AS2 / Colab | none | AS2 ractors jobs and Colab sims | U2 / U3 |
 | gate evals at step N | none | submitted by agents | U2 (`clashjobs --after` / step trigger, once per threshold) |
-| site / showcase refresh | clashlab-site / -monitor / -showcase / -record timers | showcase targets static (`showcase_targets.json`) | site-auto stream U1 |
+| site / showcase refresh | clashlab-site / -monitor / -showcase / -record timers | none: active attacker runs (AS2 + clash-sim) become showcase targets automatically; stale-example alarm (`featured_stale`, > 12 h) since 2026-10-13 | done (site-auto U1-U3) |
 | model archive | AI-ModelArchive (2 h) | none known | - |
 | disk space | AS1 C: < 20 GB: clashsim_watch deletes stale miniflare / wsl-crashes | AS1 G:/W:, AS2 /, clash-sim vhdx: no guard | U3 disk guards |
 | relay health | clashsim_watch restarts `\AI-ClashSim-Attv3Relay` when `/run/clash/{jr_hub,jrcore_hub}.sock` are missing | AS1 `\AI-LLMRelay` (as2_llm_relay) has no watchdog (the relay pile-up that froze WSL); clashsim_watch re-runs the relay every 15 min while the jr hubs are held by LLM mode (sockets stay missing: churn, not a fix) | U3 |
