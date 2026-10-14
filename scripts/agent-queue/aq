@@ -1000,6 +1000,7 @@ TW_GUARD = "~/ClashEngineering/ops/strixhalo/train_guard.py"
 TW_LABEL = "train-fixer"
 TW_CFG = {  # minutes an incident must stay open before a fixer launches; 0 = at once
     "main-down": 10, "gpu-idle": 15, "backlog-dry": 15, "gpu-unreachable": 15, "guard-stale": 0,
+    "data-missing": 10,                # a job worktree lacks gitignored data (ClashEngineering tools/wt_data.py)
     "ab-stuck": None, "other": None,   # None: only when the guard says "needs a human"
 }
 TW_STALE_MIN = float(os.environ.get("AQ_TW_STALE_MIN", "20"))      # guard state older than this = the guard is down
@@ -1035,6 +1036,14 @@ run one `train_guard.py tick --dry-run` to see whether it crashes. Restart the t
 change (worktree + agent_merge.sh + tools/deploy_sync.sh --apply srv2).""",
     "ab-stuck": """an A/B arm is stuck and the guard gave up restarting it. Look at its job log; cancel it only if it is
 truly wedged (no metrics for hours); never delete its run dir.""",
+    "data-missing": """a job worktree lacks gitignored data ({name}): a launcher's data preflight
+(ClashEngineering tools/wt_data.py check, record ~/clash-jobs/state/wt_preflight/<key>.json on AI Server 2) found
+required files missing or wrong, so the job was not started. Read the record (missing / bad lists, wt). Fix with
+`bash tools/server_worktree.sh ai-server-2 --check <wt> --need engine,train` from a ClashEngineering checkout (adds
+links from ~/ClashEngineering, never overwrites). If ~/ClashEngineering itself lacks the file, restore it there from
+its source (push_from_mac.sh for artifacts/ / extracted/ / .toolchain, the APK hardlinked from another worktree after
+its sha256 matches ops/worktree_data.json; clash-sim: `clashsim setup --data`). Never touch a ClashHarness folder.
+Then `backlog.py tick`; the incident closes when the same check passes.""",
     "other": "an open train guard incident the guard could not fix.",
 }
 
@@ -1096,6 +1105,8 @@ def tw_fetch():
 
 def tw_kind(key, status):
     s = (status or "").lower()
+    if key.startswith("data:"):
+        return "data-missing"
     if key == "main":
         return "main-down"
     if key.startswith("ab:"):

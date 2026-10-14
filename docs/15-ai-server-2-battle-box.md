@@ -27,9 +27,11 @@ server and is reached through ClashLink and the job queue. The same box can also
 > check; the learner refuses it). Set `CLASHLAB_LEARNER_UPDATE_TIMEOUT=1800` for the arm (an iGPU update plus the
 > queued second one outlasts the 300 s default; the client then times out and reconnects). First run: backlog entry `gen3zone-as2` (gen3zone A/B arm, port 8907, worktree
 > `~/ce_gen3zone_as2`). Details: ClashEngineering `docs/attacker/LEARNER_SPEED.md` "AI Server 2 iGPU learner".
-> Gotcha for a new AS2 run worktree: besides `.venv` / `.toolchain` / `extracted`, symlink every entry of
-> `~/ClashEngineering/artifacts/` and `artifacts/validation/` that the worktree lacks (libg.so, the engine id map),
-> else run.py dies in GameData looking for the APK.
+> New AS2 / clash-sim run worktree: make it with ClashEngineering `tools/server_worktree.sh ai-server-2 <name> <ref>`
+> (2026-10-14), never a bare `git worktree add`. It links `.venv` / `.toolchain` / `extracted` / the pinned APK and
+> every entry of `~/ClashEngineering/artifacts/` and `artifacts/validation/`, verifies the required list
+> (`ops/worktree_data.json`, sha256 pins for the engine inputs) and exits 3 `NOT READY` when anything is missing.
+> Existing one: `tools/server_worktree.sh ai-server-2 --check <name|path>`. Section "Worktree data" below.
 
 ## The split (since 2026-10-10): AI Server 1 trains, AI Server 2 does every Clash CPU job
 
@@ -308,3 +310,24 @@ unused declared CPUs; idle jobs run at low CPUWeight / SCHED_IDLE so normal jobs
 job starts while the 1-min load is above 1.05 x 32).) `/usr/local/bin/clashjobs`
 reads the runner's ExecStart and runs that same file, so `clashjobs status/submit/reprio` always match the runner.
 `~/ClashEngineering/ops/strixhalo/clashjobs.py` lags until the next deploy sync and misreports budgets.
+
+## Worktree data (2026-10-14)
+
+Job worktrees (`~/ce_*`) hold only tracked files; the data jobs read comes from `~/ClashEngineering` through symlinks.
+A worktree that lacked some (gen3eff-as2, 2026-10-14: 25 of 883 `artifacts/validation` entries, no APK) crashed at
+engine start and left the iGPU idle 7 h. Since ClashEngineering d2e527b:
+
+- `tools/server_worktree.sh HOST NAME REF [--need engine,train,render]` creates `~/ce_NAME` (detached at REF), links
+  every data entry (never over an existing file; ClashHarness never touched) and verifies the required files.
+  HOST `ai-server-2` or `clash-sim` (made on AS2, which `clashsim submit --cwd` pushes; then clash-sim's mirror is
+  verified). `--check NAME|PATH` repairs + verifies an existing one.
+- Every launcher checks first and stops with exit 3 instead of stalling: the backlog before a clashjobs / clashsim
+  launch (entry field `data_need`, default `engine`; the entry waits), `clashjobs submit --data-need GROUPS` (at job
+  start), `clashsim submit --data-need`, and the runners (`gen2/*_run.sh`, `as2_learner.sh`, `gen3_ractors.sh`,
+  `gen2_llmactors.sh` via `tools/wt_preflight.sh`). A failure writes `~/clash-jobs/state/wt_preflight/KEY.json`;
+  train_guard shows it as incident kind `data-missing` (doc 27) and the Mac trainwatch sends a fixer after 10 min.
+- The pinned APK (`com.supercell.clashofclans_18.600.1.apk`, sha256 5e718a87...) now sits in `~/ClashEngineering` on
+  AS2 (hardlink of `~/ce_cppdiff`'s copy) and clash-sim (hardlink of `/opt/clash/apk`), so worktrees link it.
+- Audit: `python3 tools/wt_data.py audit ~/ce_*/ --no-hash`. 2026-10-14: 22 of 138 AS2 worktrees complete (most
+  others lacked only the APK); every worktree of a live job or a pending backlog entry repaired (links added only).
+

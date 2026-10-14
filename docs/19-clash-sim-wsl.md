@@ -112,7 +112,7 @@ Owner: fleet-utilisation agent. Code: ClashEngineering `ops/aiserver/clashsim.py
   benchmark that ignored this caused a global OOM in the VM on 2026-10-11 01:40 PDT that killed attv3-infer and
   attv3-offeval; pp-antoine was not hit). `yield_units` fleet-teach / fleet-teach2: the filler is stopped while a job
   is memory-blocked and restarted 15 min after (only units the runner itself stopped).
-* **Data:** `clashsim setup --data` also mirrors AS2's `~/ClashEngineering/artifacts/` (all but `ghidra/`, which the worktrees link entry by entry) and `.toolchain/tmp/x86_oracle` (the 322 MB mode snapshot, seeded from `/opt/clash/data`, same sha256 63b0c493...). Rerun it after the engine data changes upstream.
+* **Data:** `clashsim setup --data` also mirrors AS2's `~/ClashEngineering/artifacts/` (all but `ghidra/`, which the worktrees link entry by entry) and `.toolchain/tmp/x86_oracle` (the 322 MB mode snapshot, seeded from `/opt/clash/data`, same sha256 63b0c493...). Rerun it after the engine data changes upstream. Since 2026-10-14 it also sends the pinned APK (`~/ClashEngineering/com.supercell.clashofclans_18.600.1.apk`; clash-sim's copy is a hardlink of `/opt/clash/apk`). Verify the mirror: ClashEngineering `tools/server_worktree.sh clash-sim --check <name>` (doc 15 "Worktree data").
 * **Mirrored paths:** jobs see AS2's absolute paths (`/home/taiwong/...`, `HOME=/home/taiwong`). `/home/taiwong/ClashEngineering`
   holds the tracked code, `extracted/`, `.toolchain/{armies,attacker,oracle_sim}` and `.venv` -> `/opt/clash/jobs/venv`
   (AS2's exact package set, CPU torch, PIE python). Provision / refresh from AS2: `clashsim setup [--runner|--data|--venv]`.

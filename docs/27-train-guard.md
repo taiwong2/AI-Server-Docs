@@ -37,7 +37,7 @@ The attacker-owner aq task reads `train_guard.py status` and the log every cycle
 
 The guard fixes what it can and never invents work. What it cannot fix goes to Codex: `train_guard.py incidents
 --json` lists the open incidents with a stable `id`, a `kind` (main-down / gpu-idle / backlog-dry / gpu-unreachable /
-ab-stuck), `needs_human`, `paused` and the `actions` it tried. The Mac's `aq trainwatch` (LaunchAgent, every 3 min)
+ab-stuck / data-missing: a job worktree lacks gitignored data, doc 15 "Worktree data"), `needs_human`, `paused` and the `actions` it tried. The Mac's `aq trainwatch` (LaunchAgent, every 3 min)
 reads it and, when the main run is down >= 10 min, a GPU idle >= 15 min, the guard says "needs a human", or the guard
 is stale, queues ONE `codex exec` task (model gpt-5.6-luna) with a fixed playbook; one fixer at a time, one per incident
 per 60 min, 6 a day. Fixers write `train_guard.py note ...` lines into this log. Details and the rules table:
