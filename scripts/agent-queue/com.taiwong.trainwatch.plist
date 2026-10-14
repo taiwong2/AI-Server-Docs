@@ -20,9 +20,8 @@
   </dict>
   <key>RunAtLoad</key><true/>
   <key>StartInterval</key><integer>180</integer>
-  <key>ProcessType</key><string>Background</string>
-  <key>LowPriorityIO</key><true/>
-  <key>Nice</key><integer>5</integer>
+  <!-- Standard, not Background: as a Background job one pass took 1-2 min (python startup and ssh throttled). -->
+  <key>ProcessType</key><string>Standard</string>
   <key>StandardOutPath</key><string>/Users/taiwong/.claude/agent-queue/trainwatch.launchd.log</string>
   <key>StandardErrorPath</key><string>/Users/taiwong/.claude/agent-queue/trainwatch.launchd.log</string>
 </dict>
