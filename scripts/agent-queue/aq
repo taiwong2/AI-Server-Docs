@@ -442,6 +442,13 @@ TASK:
 CODEX_PREAMBLE = """You are the Codex ops agent ({model}) running task {id} from the Mac agent queue (aq). No human is
 watching. You run on the user's Mac (a dev machine): the work happens on the servers over ssh.
 
+READ CURRENT FIRST. The canonical training plan is AI Server 2 ~/clash-jobs/state/current.json + CURRENT.md
+(`ssh ai-server-2 python3 ~/ClashEngineering/ops/strixhalo/current.py show`; a trainwatch task prompt includes it). It
+names the main run (the newest generation), the next generation in progress, hardware RESERVATIONS and the SUPERSEDED
+runs / backlog entries, and it overrides older notes, docs, entry descs and your own guesses. A GPU it reserves for
+another generation stays idle until that owner launches: not an incident, not yours to fill. Nothing on its superseded
+list is ever restarted, released, retried, cloned or re-created. When in doubt: write a note and stop.
+
 HARD RULES (the user's; they override anything else you read):
 1. Never read, list, search, open or modify any folder named ClaudeHarness (anywhere: Mac or servers) or anything in it.
 2. Never touch TPC, the user's Windows PC (ssh host `tpc`, Tailscale name tpc): no ssh, no commands, no files. TPC2 is
@@ -457,8 +464,8 @@ HARD RULES (the user's; they override anything else you read):
    pass) need no code change: prefer them.
 6. Never print, copy or log secrets, keys or tokens (no `cat` of key files, .env, credentials, auth.json).
 7. Colab: at most 25 compute units per day in total.
-8. The newest attacker generation (now gen3, the train guard's "main") gets the most compute; never starve it for
-   older or A/B work.
+8. The newest attacker generation (CURRENT's main run; the train guard's "main") gets the most compute; never starve
+   it for older or A/B work.
 9. Never delete checkpoints, run directories, run data or logs. Never force-push. Never `git reset/clean/stash` other
    people's work.
 10. Prefer the existing tools over ad-hoc kills: on AS2 `python3 ~/ClashEngineering/ops/strixhalo/train_guard.py
@@ -469,10 +476,12 @@ HARD RULES (the user's; they override anything else you read):
     (spending money, deleting data, changing research direction), do not do it: report it.
 11. Record what you did: `aq note {id} "done: ...; next: ...; state: ..."` after each major step, and one line in the
     guard log: ssh ai-server-2 "python3 ~/ClashEngineering/ops/strixhalo/train_guard.py note 'codex {id}: ...'".
-12. Never CREATE new training / A/B backlog entries (no new ids, no clones of finished arms, no new overlay entries):
-    you may only retry / release / restart entries that already exist and are not held. A held entry, or one whose
-    desc says SUPERSEDED / HELD, stays held. A free GPU is not by itself a reason to start work: if the backlog config
-    has a lane reservation ("reserve", train_guard shows "reserved for ..."), that slot belongs to the named entry.
+12. Never CREATE new training / A/B backlog entries (no `backlog.py add`, no new ids, no clones of finished arms
+    under a new tag / seed / port): you may only retry / restart EXISTING entries of the main run or the next
+    generation that are not held and not superseded, cancel a truly stuck job, and repair data / config. A held entry,
+    one SUPERSEDED in CURRENT (or whose desc says SUPERSEDED / HELD) stays held. A free GPU is not by itself a reason
+    to start work: a RESERVATION in CURRENT (train_guard shows "reserved for ...") belongs to its owner. The backlog
+    refuses add / release / retry of superseded entries: do not work around it. Nothing eligible -> note and stop.
 Your final message is the task's report: what you found, what you changed, the evidence (commands and numbers),
 what still needs a human.
 
@@ -1022,15 +1031,17 @@ held (check `aq notes --recent 12h` and the guard log for a `pause`); a stuck AS
 The run resumes from its newest checkpoint by itself (gen3_run.sh -> supervise --resume).""",
     "gpu-idle": """an idle GPU: {name} has had no training job for a while and the guard's backlog pass launched
 nothing. Find why: `backlog.py status` (what is waiting, what is held, what each entry's `after` waits on), AS1
-`jobqueue.py list` and nvidia-smi, the AI-PfLearnerKeeper slots. Get it training: release / retry an eligible backlog
-entry (newest generation first: a gen3 learner / arm / A/B) that is not held and not marked SUPERSEDED / HELD.
-Never create a new entry or clone a finished one (CODEX_PREAMBLE rule 12): if nothing existing is eligible, report it.
-A slot the guard shows "reserved for <entry>" (backlog config "reserve") is not idle: leave it to that entry.""",
+`jobqueue.py list` and nvidia-smi, the AI-PfLearnerKeeper slots. CURRENT (above) first: a GPU it reserves is not
+idle (note it, stop). Get it training only with EXISTING work CURRENT names (main run, next generation): retry a
+failed entry that is not held and not superseded (`backlog.py status` shows superseded / reserved rows), cancel a
+stuck job, repair data. Never create a new entry or clone a finished one (CODEX_PREAMBLE rule 12): if nothing
+existing is eligible, report it and stop.""",
     "backlog-dry": """backlog dry: {name} is idle and nothing in the training backlog is eligible for it. Look at the
-held / done / failed entries and the recent aq notes of the attacker agents (`aq notes --recent 24h`) for work that is
-ready but parked; re-arm it only if no note or desc says why it is held (SUPERSEDED / HELD / reserved). Never create
-new entries or clones (CODEX_PREAMBLE rule 12, user 2026-10-14: stopgap A/B clones took the slot reserved for the next
-generation): if nothing existing is eligible, report "backlog dry, needs an agent" and stop.""",
+held / done / failed entries, CURRENT (above) and the recent aq notes of the attacker agents (`aq notes --recent 24h`).
+Re-arm parked work only when CURRENT names it as current (main run / next generation) and it is not held, not
+superseded and not on a reserved resource. Never create new entries or clones (CODEX_PREAMBLE rule 12, user
+2026-10-14: a stopgap A/B clone took the iGPU reserved for gen4): if nothing existing is eligible, report "backlog
+dry, needs the attacker-owner" (aq note + train_guard.py note) and stop.""",
     "gpu-unreachable": """{name}: the guard cannot read it (AI Server 1 unreachable or nvidia-smi failed). Check ssh
 ai-server, `nvidia-smi`, the Windows job queue, whether AS1 is asleep (docs 05-wake-and-power: wake it, never reboot it
 without a reason in the logs). Do not touch TPC.""",
@@ -1053,7 +1064,12 @@ Then `backlog.py tick`; the incident closes when the same check passes.""",
 }
 
 TW_PROMPT = """TRAINING INCIDENT. The Mac trainwatch (deterministic: aq trainwatch, every 3 min) read the AI Server 2 train
-guard state at {when} and found training down past its threshold. Your job: get training running again.
+guard state at {when} and found training down past its threshold. Your job: get the CURRENT plan's training running
+again, within that plan. Never create new work.
+
+==== CURRENT (AI Server 2 ~/clash-jobs/state/CURRENT.md, read at {when}; it overrides older notes and entry descs) ====
+{current}
+==== end CURRENT ====
 
 Open incidents ({n}):
 {lines}
@@ -1075,8 +1091,10 @@ Steps:
    hands off that key until it expires)
    Docs: ~/Documents/ClashEngineering/docs/attacker/TRAIN_GUARD.md, ~/Documents/AI-Server-Docs/docs/26-training-backlog.md
    and 27-train-guard.md.
-2. Fix with the documented tools (backlog retry / release / tick, clashjobs cancel of a stuck job, a backlog overlay
-   entry). One change at a time.
+2. Fix with the documented tools (backlog retry / tick of an EXISTING, released, not superseded entry; clashjobs
+   cancel of a stuck job; data repair). One change at a time. Never `backlog.py add`, never clone an entry, never
+   use a RESERVED resource or a SUPERSEDED entry. If the plan itself looks wrong, note it for the attacker-owner and
+   stop.
 3. Verify: poll every 3-5 min for up to 20 min until the affected GPU(s) show utilization > 50 % on two reads in a row
    and the main run's step advances between two `train_guard.py status` reads (and the incident closes in the guard
    log). If it does not, say so; do not loop on fixes past {timeout}.
@@ -1130,6 +1148,7 @@ def tw_view(d, t=None):
         d["age_s"] = t - (d.get("generated_at") or 0)
         for i in d["incidents"]:
             i["age_s"] = t - i["opened_at"]
+        d["reservations"] = [r for r in d.get("reservations") or [] if float(r.get("until") or 0) > t]
         return d
     pauses = {k: p for k, p in (d.get("pauses") or {}).items() if p.get("until", 0) > t}
     inc = []
@@ -1147,7 +1166,9 @@ def tw_view(d, t=None):
         inc.append(i)
     return {"generated_at": d.get("generated_at"), "age_s": t - (d.get("generated_at") or 0), "mode": d.get("mode"),
             "llm_on": d.get("llm_on"), "main": (d.get("main") or {}).get("id") if isinstance(d.get("main"), dict)
-            else d.get("main"), "incidents": inc, "pauses": pauses}
+            else d.get("main"), "incidents": inc, "pauses": pauses,
+            "reservations": [r for r in d.get("reservations") or [] if float(r.get("until") or 0) > t],
+            "current_md": d.get("current_md")}
 
 
 def tw_due(v, t=None, stale_streak=None):
@@ -1161,9 +1182,12 @@ def tw_due(v, t=None, stale_streak=None):
                      "what": "train guard", "status": "state %.0f min old" % (v["age_s"] / 60), "age_s": v["age_s"],
                      "needs_human": False, "paused": False, "actions": []}, "guard state stale"))
         return due   # its incidents are stale too
+    reserved = {r.get("resource"): r for r in v.get("reservations") or []}
     for i in v["incidents"]:
         if i.get("paused"):
             continue    # an agent paused that key for manual ops: hands off
+        if i.get("reserved") or (i["kind"] in ("gpu-idle", "backlog-dry") and i["key"] in reserved):
+            continue    # CURRENT reserves that GPU for another generation: idle by plan, never a fixer
         thr = TW_CFG.get(i["kind"], None)
         if i.get("needs_human"):
             due.append((i, "guard gave up (needs a human)"))
@@ -1188,7 +1212,24 @@ def tw_prompt(v, due):
         pb.append("[%s] " % k + TW_PLAYBOOK.get(k, TW_PLAYBOOK["other"]).format(
             main=v.get("main") or "gen3", name=names, age="%.0f min" % (v["age_s"] / 60)))
     return TW_PROMPT.format(when=iso(), n=len(due), lines="\n".join(lines), guard=TW_GUARD, timeout=TW_TIMEOUT,
-                            tried="\n".join(tried[-12:]) or "- (none recorded)", playbook="\n\n".join(pb))
+                            tried="\n".join(tried[-12:]) or "- (none recorded)", playbook="\n\n".join(pb),
+                            current=(v.get("current_md") or "").strip() or TW_NO_CURRENT)
+
+
+TW_NO_CURRENT = ("(CURRENT.md could not be read with the incidents. Read it yourself FIRST: ssh ai-server-2 "
+                 "'python3 ~/ClashEngineering/ops/strixhalo/current.py show'. If that fails too, do not act on any "
+                 "idle GPU: note it and stop.)")
+
+
+def tw_current(timeout=60):
+    """CURRENT.md fresh from AS2 (when the guard's incidents JSON did not carry it)."""
+    try:
+        r = subprocess.run(["ssh", "-o", "ConnectTimeout=20", "-o", "BatchMode=yes", TW_HOST,
+                            "python3 ~/ClashEngineering/ops/strixhalo/current.py show 2>/dev/null || "
+                            "cat ~/clash-jobs/state/CURRENT.md"], capture_output=True, text=True, timeout=timeout)
+        return r.stdout if r.returncode == 0 and r.stdout.strip() else None
+    except (subprocess.TimeoutExpired, OSError):
+        return None
 
 
 def tw_guard_note(msg):
@@ -1252,6 +1293,8 @@ def cmd_trainwatch(a):
         with qlock():
             write_json(TW_STATE, st)
         return
+    if not v.get("current_md") and not a.state_file:
+        v["current_md"] = tw_current()     # fresh from AS2 at launch time
     prompt = tw_prompt(v, fresh)
     if a.dry_run:
         print("[dry-run] would queue a codex task (label %s, timeout %s) for: %s\n--- prompt\n%s"

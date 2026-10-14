@@ -77,4 +77,24 @@ p=$($AQ show train-fixer --json | /usr/bin/python3 -c 'import json,sys; t=json.l
 [[ "$p" == codex* && "$p" == *"gpu1@"*"backlog-dry"* && "$p" == *"main@"*"main-down"* && "$p" != *"gpu0@"* ]] || { echo "FAIL prompt: $p"; exit 1; }
 grep -q "a fixer is already queued" $AQ_HOME/trainwatch.log || { echo "FAIL: no dedupe log"; exit 1; }
 echo "PASS 4: trainwatch queues one codex fixer for the due incidents (idle GPU 20 min, main needs a human), not the young one"
+# 5. CURRENT: a reserved iGPU idle incident never launches a fixer; other incidents do, with CURRENT.md in the prompt
+export AQ_HOME=$T/q5
+n=$(date +%s)
+MD='# CURRENT: attacker training\n## RESERVATIONS\n- igpu: reserved for **gen4** (owner gen4) until 2026-10-15T12:00Z\n## SUPERSEDED\n- `gen3zone2-as2`: codex clone'
+printf '{"generated_at":%d,"age_s":0,"mode":"live","main":"gen3","pauses":{},"reservations":[{"resource":"igpu","for":"gen4","until":%d}],"superseded":["gen3zone2-as2"],"current_md":"%s","incidents":[{"id":"igpu@%d","key":"igpu","kind":"backlog-dry","what":"AI Server 2 iGPU","opened_at":%d,"status":"IDLE 30 min: backlog dry","needs_human":false,"paused":false,"actions":[]}]}' \
+  $n $((n + 43200)) "$MD" $((n - 1800)) $((n - 1800)) > $T/g5a.json
+$AQ trainwatch --state-file $T/g5a.json --verbose | tee $T/g5a.out
+[[ $($AQ list | grep -c train-fixer || true) -eq 0 ]] || { echo "FAIL: a fixer launched for a reserved iGPU"; exit 1; }
+grep -q "nothing due" $T/g5a.out || { echo "FAIL: reserved incident counted as due"; exit 1; }
+# the same plus an AS1 GPU idle 30 min -> one fixer for gpu1 only, CURRENT.md (reservation, superseded) in the prompt
+printf '{"generated_at":%d,"age_s":0,"mode":"live","main":"gen3","pauses":{},"reservations":[{"resource":"igpu","for":"gen4","until":%d}],"superseded":["gen3zone2-as2"],"current_md":"%s","incidents":[{"id":"igpu@%d","key":"igpu","kind":"backlog-dry","what":"AI Server 2 iGPU","opened_at":%d,"status":"IDLE 30 min: backlog dry","needs_human":false,"paused":false,"actions":[]},{"id":"gpu1@%d","key":"gpu1","kind":"backlog-dry","what":"AI Server 1 GPU1","opened_at":%d,"status":"IDLE 30 min: backlog dry","needs_human":false,"paused":false,"actions":[]}]}' \
+  $n $((n + 43200)) "$MD" $((n - 1800)) $((n - 1800)) $((n - 1800)) $((n - 1800)) > $T/g5b.json
+$AQ trainwatch --state-file $T/g5b.json --dry-run > $T/g5b.dry
+$AQ trainwatch --state-file $T/g5b.json
+p=$($AQ show train-fixer --json | /usr/bin/python3 -c 'import json,sys; t=json.load(sys.stdin); print(t["prompt"])')
+[[ "$p" == *"==== CURRENT"*"reserved for **gen4**"*"gen3zone2-as2"*"==== end CURRENT"* && "$p" == *"gpu1@"* && "$p" != *"igpu@"* ]] || { echo "FAIL prompt5: $p"; exit 1; }
+[[ "$p" == *"Never create new work"* && "$p" != *"backlog.py add ENTRY"* ]] || { echo "FAIL: prompt still invites new entries"; exit 1; }
+grep -q "READ CURRENT FIRST" $HERE/aq || { echo "FAIL: preamble"; exit 1; }
+[[ -n "${AQ_TEST_SHOW_PROMPT:-}" ]] && cp $T/g5b.dry "$AQ_TEST_SHOW_PROMPT"
+echo "PASS 5: reserved iGPU -> no fixer; other incidents -> one fixer whose prompt carries CURRENT (reservation, superseded)"
 rm -rf "$T"

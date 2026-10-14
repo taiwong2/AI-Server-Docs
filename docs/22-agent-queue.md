@@ -135,10 +135,17 @@ inside that sandbox. The prompt starts with `CODEX_PREAMBLE`, the hard rules Cod
 ClaudeHarness, never TPC (TPC2 = AS1 is fine), never `llm-mode off` (LLM takes precedence), no compute on the Mac,
 AGENTS.md git rules with no Co-Authored-By, no secrets in output, Colab <= 25 units/day, gen3 (newest) gets the most
 compute, never delete checkpoints / run data, the existing tools before ad-hoc kills, `aq note` + `train_guard.py note`.
-Rule 12 (2026-10-14): Codex never creates backlog entries (no new ids, no clones of finished A/B arms): it only
-retries / releases existing entries that are not held or marked SUPERSEDED / HELD, and a slot the train guard shows
-"reserved for <entry>" (ClashEngineering backlog config `reserve`, ops/strixhalo/backlog.py) belongs to that entry.
-The gpu-idle / backlog-dry playbooks say the same: nothing eligible -> report, do not invent work.
+Rule 12 (2026-10-14): Codex never creates backlog entries (no `backlog.py add`, no new ids, no clones of finished A/B
+arms): it only retries / restarts EXISTING entries of the main run or the next generation that are not held and not
+superseded. The gpu-idle / backlog-dry playbooks say the same: nothing eligible -> note and stop, do not invent work.
+
+**READ CURRENT FIRST** (2026-10-14, after a fixer cloned the superseded gen3zone-as2 into gen3zone2-as2 on the AS2
+iGPU reserved for gen4): the canonical plan is AI Server 2 `~/clash-jobs/state/current.json` + `CURRENT.md`
+(ClashEngineering `ops/strixhalo/current.py`, repo mirror `docs/attacker/CURRENT.md`, doc 27): main run, next
+generation, hardware RESERVATIONS, SUPERSEDED runs / entries, gates, the standing rules. CODEX_PREAMBLE opens with it,
+every trainwatch prompt embeds CURRENT.md as read at launch (from `incidents --json` `current_md`, else a second ssh
+`current.py show`), and the backlog itself refuses to launch / release / retry / re-add superseded entries or to put
+anything else on a reserved resource.
 The final message (`-o`) is the task's result; the JSONL event stream is in `logs/<id>.<n>.codex.out` and the log.
 Default timeout 45 min (`--timeout`). Overrides: `AQ_CODEX_BIN`, `AQ_CODEX_MODEL`, `AQ_CODEX_DIRS`. dsh and codex tasks
 have their own slots (`AQ_MAX_PARALLEL_OTHER`, 2), apart from claude's `AQ_MAX_PARALLEL`.
@@ -156,9 +163,10 @@ no LLM decides:
 | `guard-stale` (guard state > 20 min old) | 3 passes in a row (AS2 may just have woken from suspend) |
 | `ab-stuck`, `other` | only with "needs a human" |
 | key paused (`train_guard.py pause`) | never: an agent is doing manual ops |
+| idle GPU reserved in CURRENT (`current.py reserve igpu --for gen4 ...`; incident `reserved`, or key in `reservations`) | never: idle by plan (the guard does not even open one) |
 
-Due incidents -> ONE task `label=train-fixer runner=codex priority 8 max_attempts 1 timeout 45m`, prompt = the
-incidents (id, kind, status, what the guard tried) + the playbook per kind + fixed steps (diagnose with these commands,
+Due incidents -> ONE task `label=train-fixer runner=codex priority 8 max_attempts 1 timeout 45m`, prompt = CURRENT.md
+(fresh from AS2) + the incidents (id, kind, status, what the guard tried) + the playbook per kind + fixed steps (diagnose with these commands,
 fix with the documented tools, verify GPU util > 50 % and steps advancing, report). Dedupe and caps: no launch while a
 `train-fixer` task is pending/running; one launch per incident id per 60 min (`AQ_TW_COOLDOWN_MIN`); 6 per 24 h
 (`AQ_TW_MAX_PER_DAY`). AS2 unreachable (asleep): no launch, logged on the 1st/5th/every 20th failure. It always uses
