@@ -174,6 +174,14 @@ guard state: idle GPU 20 min + main needing a human -> exactly one fixer; a 2-mi
 second pass is deduped). Smoke 2026-10-14: a read-only codex task from the launchd runner ran `train_guard.py status`
 over ssh on AS2 and nvidia-smi on AS1, wrote an aq note, and reported model gpt-5.6-luna (408 s).
 
+Live since 2026-10-14 19:14Z. First incident `igpu@1791983969` (AS2 iGPU idle ~6.4 h, guard 'needs a human'):
+fixer 1 (`20261014-141404-404f`) found the newest-gen `gen3eff-as2` learner stuck behind AS2 memory admission, raised
+its priority 60 -> 80 and cancelled nothing; still queued at its bounded end. The 60-min cooldown held, then fixer 2
+(`20261014-151521-40ff`, 2/6 that day) cancelled a stale dsg24 report and a broken offeval sync to free admission. It
+found the AS2 worktree was missing validation artifacts (pinned APK, `x86_oracle_linux_imports.json`,
+`x86_env_addrmap.json`), copied them from AS1 with the hashes checked, and restarted cleanly: job 817597003473 trains
+(iGPU 100 %), the guard logged `resolved igpu after 7.2 h`, AS1 main kept advancing. No human needed.
+
 Install gotcha found on the way: `launchctl bootout` stops the runner's /bin/bash parent, but a python runner busy in a
 long call can survive and keep the runner lock (the new one then exits "a runner is already running" in a loop).
 install.sh now TERMs, then KILLs, any leftover `aq run`.
