@@ -52,6 +52,7 @@ attacker arms on its iGPU when the 3090s are taken (LLM mode still takes precede
 | Use an LLM from AI Server 1 (it serves none since 2026-10-12: the relay to AI Server 2, Antoine's :1234, the override) | [AS1 serves no LLM](docs/24-as1-no-llm.md) |
 | See that the watchdogs (keepers) are alive, and what still needs an agent during a Claude outage | [Keepers heartbeat](docs/25-keepers-heartbeat.md) |
 | Queue training / eval jobs that start by themselves when a GPU or CPU frees up (no agent needed) | [Training backlog](docs/26-training-backlog.md) |
+| Make sure every GPU is training and the main run never stops (finished / stuck -> resume, idle GPU -> next job) | [Train guard](docs/27-train-guard.md) |
 | What `dsh` does (AI Server 2 default backend, LLM mode, idle unload), routing, troubleshooting | [DeepSeek Harness setup](docs/10-dsh-setup.md) |
 | Write a story, poem or lyrics with Gemma 4 | [Creative writing](docs/11-creative-writing.md) |
 | Use the Flash-Next LLM on AI Server 2 (Strix Halo, gufo; the dsh default), or turn it on/off (`llm-mode`) | [AI Server 2 (Strix Halo) LLM](docs/17-ai-server-2-llm.md) |
