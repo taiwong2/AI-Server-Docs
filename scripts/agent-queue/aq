@@ -469,6 +469,10 @@ HARD RULES (the user's; they override anything else you read):
     (spending money, deleting data, changing research direction), do not do it: report it.
 11. Record what you did: `aq note {id} "done: ...; next: ...; state: ..."` after each major step, and one line in the
     guard log: ssh ai-server-2 "python3 ~/ClashEngineering/ops/strixhalo/train_guard.py note 'codex {id}: ...'".
+12. Never CREATE new training / A/B backlog entries (no new ids, no clones of finished arms, no new overlay entries):
+    you may only retry / release / restart entries that already exist and are not held. A held entry, or one whose
+    desc says SUPERSEDED / HELD, stays held. A free GPU is not by itself a reason to start work: if the backlog config
+    has a lane reservation ("reserve", train_guard shows "reserved for ..."), that slot belongs to the named entry.
 Your final message is the task's report: what you found, what you changed, the evidence (commands and numbers),
 what still needs a human.
 
@@ -1019,13 +1023,14 @@ The run resumes from its newest checkpoint by itself (gen3_run.sh -> supervise -
     "gpu-idle": """an idle GPU: {name} has had no training job for a while and the guard's backlog pass launched
 nothing. Find why: `backlog.py status` (what is waiting, what is held, what each entry's `after` waits on), AS1
 `jobqueue.py list` and nvidia-smi, the AI-PfLearnerKeeper slots. Get it training: release / retry an eligible backlog
-entry (newest generation first: a gen3 learner / arm / A/B), or add one well-formed entry to the live overlay
-(`backlog.py add ENTRY.json`, validated with `backlog.py validate`) that trains the newest generation on that card.""",
+entry (newest generation first: a gen3 learner / arm / A/B) that is not held and not marked SUPERSEDED / HELD.
+Never create a new entry or clone a finished one (CODEX_PREAMBLE rule 12): if nothing existing is eligible, report it.
+A slot the guard shows "reserved for <entry>" (backlog config "reserve") is not idle: leave it to that entry.""",
     "backlog-dry": """backlog dry: {name} is idle and nothing in the training backlog is eligible for it. Look at the
 held / done / failed entries and the recent aq notes of the attacker agents (`aq notes --recent 24h`) for work that is
-ready but parked; re-arm it. If nothing is parked for a reason you can verify, add ONE training entry for the newest
-generation (gen3) to the live overlay (`backlog.py add`, then `backlog.py validate` and `backlog.py tick`). Do not
-invent research directions: reuse an existing entry's shape (same cmd / launcher, a new tag or seed).""",
+ready but parked; re-arm it only if no note or desc says why it is held (SUPERSEDED / HELD / reserved). Never create
+new entries or clones (CODEX_PREAMBLE rule 12, user 2026-10-14: stopgap A/B clones took the slot reserved for the next
+generation): if nothing existing is eligible, report "backlog dry, needs an agent" and stop.""",
     "gpu-unreachable": """{name}: the guard cannot read it (AI Server 1 unreachable or nvidia-smi failed). Check ssh
 ai-server, `nvidia-smi`, the Windows job queue, whether AS1 is asleep (docs 05-wake-and-power: wake it, never reboot it
 without a reason in the logs). Do not touch TPC.""",

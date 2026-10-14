@@ -135,6 +135,10 @@ inside that sandbox. The prompt starts with `CODEX_PREAMBLE`, the hard rules Cod
 ClaudeHarness, never TPC (TPC2 = AS1 is fine), never `llm-mode off` (LLM takes precedence), no compute on the Mac,
 AGENTS.md git rules with no Co-Authored-By, no secrets in output, Colab <= 25 units/day, gen3 (newest) gets the most
 compute, never delete checkpoints / run data, the existing tools before ad-hoc kills, `aq note` + `train_guard.py note`.
+Rule 12 (2026-10-14): Codex never creates backlog entries (no new ids, no clones of finished A/B arms): it only
+retries / releases existing entries that are not held or marked SUPERSEDED / HELD, and a slot the train guard shows
+"reserved for <entry>" (ClashEngineering backlog config `reserve`, ops/strixhalo/backlog.py) belongs to that entry.
+The gpu-idle / backlog-dry playbooks say the same: nothing eligible -> report, do not invent work.
 The final message (`-o`) is the task's result; the JSONL event stream is in `logs/<id>.<n>.codex.out` and the log.
 Default timeout 45 min (`--timeout`). Overrides: `AQ_CODEX_BIN`, `AQ_CODEX_MODEL`, `AQ_CODEX_DIRS`. dsh and codex tasks
 have their own slots (`AQ_MAX_PARALLEL_OTHER`, 2), apart from claude's `AQ_MAX_PARALLEL`.
