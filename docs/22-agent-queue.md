@@ -120,3 +120,60 @@ The user's rule is to reset sessions regularly, hand off between them, and keep 
 - Backup of the runner before the change: `~/.claude/agent-queue/bin/aq.bak-20261012-handoff`. Restart the runner after
   editing it: `launchctl kickstart -k gui/$(id -u)/com.taiwong.agent-queue`, and kill a leftover `aq run` python if
   it reports "a runner is already running".
+
+## runner=codex and trainwatch: Codex gets training going again (2026-10-14)
+
+User: "when something is idle can you detect it deterministically and launch codex and use luna as a model and just
+tell it to get stuff training again".
+
+**runner=codex** (`aq add --runner codex ...`): the task runs as `codex exec -m gpt-5.6-luna -s workspace-write -c
+sandbox_workspace_write.network_access=true -c approval_policy="never" --skip-git-repo-check -C
+~/.claude/agent-queue/codex-work/<id> --json -o <log>.last`, with `--add-dir` for `~/.claude/agent-queue` (aq note),
+`~/Documents/ce-wt` (agent worktrees), `~/Documents/ClashEngineering/.git` (worktree / merge metadata) and
+`~/Documents/AI-Server-Docs`. The shared checkout itself stays read-only to it. ssh to ai-server / ai-server-2 works
+inside that sandbox. The prompt starts with `CODEX_PREAMBLE`, the hard rules Codex would not otherwise know: no
+ClaudeHarness, never TPC (TPC2 = AS1 is fine), never `llm-mode off` (LLM takes precedence), no compute on the Mac,
+AGENTS.md git rules with no Co-Authored-By, no secrets in output, Colab <= 25 units/day, gen3 (newest) gets the most
+compute, never delete checkpoints / run data, the existing tools before ad-hoc kills, `aq note` + `train_guard.py note`.
+The final message (`-o`) is the task's result; the JSONL event stream is in `logs/<id>.<n>.codex.out` and the log.
+Default timeout 45 min (`--timeout`). Overrides: `AQ_CODEX_BIN`, `AQ_CODEX_MODEL`, `AQ_CODEX_DIRS`. dsh and codex tasks
+have their own slots (`AQ_MAX_PARALLEL_OTHER`, 2), apart from claude's `AQ_MAX_PARALLEL`.
+
+**trainwatch** (LaunchAgent `com.taiwong.trainwatch`, `StartInterval` 180 s, `/bin/bash -c "/usr/bin/python3
+~/.claude/agent-queue/bin/aq trainwatch"`; aq lives under ~/.claude, so no ~/Documents launchd EPERM): one ssh read of
+`train_guard.py incidents --json` on AI Server 2 (falls back to the raw `train_guard.json`). The rule is deterministic,
+no LLM decides:
+
+| incident | due when |
+|---|---|
+| `main-down` (gen3 arm not stepping) | open >= 10 min |
+| `gpu-idle`, `backlog-dry`, `gpu-unreachable` (AS1 GPU0/1, AS2 iGPU) | open >= 15 min (after the guard's own backlog pass) |
+| any incident whose status says "needs a human" | at once |
+| `guard-stale` (guard state > 20 min old) | 3 passes in a row (AS2 may just have woken from suspend) |
+| `ab-stuck`, `other` | only with "needs a human" |
+| key paused (`train_guard.py pause`) | never: an agent is doing manual ops |
+
+Due incidents -> ONE task `label=train-fixer runner=codex priority 8 max_attempts 1 timeout 45m`, prompt = the
+incidents (id, kind, status, what the guard tried) + the playbook per kind + fixed steps (diagnose with these commands,
+fix with the documented tools, verify GPU util > 50 % and steps advancing, report). Dedupe and caps: no launch while a
+`train-fixer` task is pending/running; one launch per incident id per 60 min (`AQ_TW_COOLDOWN_MIN`); 6 per 24 h
+(`AQ_TW_MAX_PER_DAY`). AS2 unreachable (asleep): no launch, logged on the 1st/5th/every 20th failure. It always uses
+codex, even when Claude is available (the user asked for codex for this ops job).
+
+Logs: `~/.claude/agent-queue/trainwatch.log` (every launch and each distinct skip), state `trainwatch.json`, and every
+launch also lands in the AS2 guard log. Commands:
+```
+aq trainwatch -v                         # one pass now
+aq trainwatch --dry-run                  # print the task it would queue
+aq trainwatch --dry-run --state-file F   # against a fake guard state (tests)
+touch ~/.claude/agent-queue/trainwatch.disabled   # off
+aq list | grep train-fixer; aq show train-fixer   # the newest fixer and its report
+```
+Tests: `scripts/agent-queue/test.sh` PASS 3 (fake codex: flags, preamble, last message = result) and PASS 4 (fake
+guard state: idle GPU 20 min + main needing a human -> exactly one fixer; a 2-min-old GPU incident is not in it; the
+second pass is deduped). Smoke 2026-10-14: a read-only codex task from the launchd runner ran `train_guard.py status`
+over ssh on AS2 and nvidia-smi on AS1, wrote an aq note, and reported model gpt-5.6-luna (408 s).
+
+Install gotcha found on the way: `launchctl bootout` stops the runner's /bin/bash parent, but a python runner busy in a
+long call can survive and keep the runner lock (the new one then exits "a runner is already running" in a loop).
+install.sh now TERMs, then KILLs, any leftover `aq run`.

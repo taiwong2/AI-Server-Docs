@@ -46,4 +46,35 @@ $AQ show "$fb" | grep -q 'ran_on            dsh' || { echo "FAIL: fallback did n
 $AQ log "$fb" | grep -q 'FAKE-DSH ran in .*keep=1 nollm=1' || { echo "FAIL: dsh env"; exit 1; }
 [[ $($AQ list | grep -E 'resume-' | grep -c pending) -eq 2 ]] || { echo "FAIL: resume tasks should still wait"; exit 1; }
 echo "PASS 2: hook + sweeper queue resumes, block set, fallback=dsh runs during the outage"
+
+# 3. runner=codex: `codex exec` with the luna model, workspace-write + network, the preamble, -o last message = result
+export AQ_HOME=$T/q3 AQ_CODEX_BIN=$T/fake_codex.sh
+cat > "$AQ_CODEX_BIN" <<'FAKE'
+#!/bin/bash
+out=""; prev=""; for a in "$@"; do [ "$prev" = "-o" ] && out=$a; prev=$a; done
+echo '{"type":"thread.started"}'
+echo "FAKE-CODEX $* " | grep -o -- '-m [^ ]*\|workspace-write\|network_access=true\|approval_policy="never"\|ClaudeHarness\|Never touch TPC' | sort -u | tr '\n' '|' > "$out"
+FAKE
+chmod +x "$AQ_CODEX_BIN"
+cx=$($AQ add --runner codex --label cxtest "say hi to {task}")
+AQ_ONCE=1 $AQ run
+$AQ show "$cx" --json | /usr/bin/python3 -c 'import json,sys; t=json.load(sys.stdin); print(t["status"], t["ran_on"], t["result"])'
+r=$($AQ show "$cx" --json | /usr/bin/python3 -c 'import json,sys; t=json.load(sys.stdin); print(t["status"], t["ran_on"], t["result"])')
+for w in "done codex" "-m gpt-5.6-luna" workspace-write network_access=true 'approval_policy="never"' ClaudeHarness "Never touch TPC"; do
+  [[ "$r" == *"$w"* ]] || { echo "FAIL codex: missing $w in: $r"; exit 1; }
+done
+echo "PASS 3: runner=codex runs codex exec (luna, sandbox+network, never-approve, preamble) and keeps its last message"
+
+# 4. trainwatch: a fake guard state with an idle GPU and a dead main run -> one codex task, deduped, cooldown
+export AQ_HOME=$T/q4
+n=$(date +%s)
+printf '{"generated_at":%d,"mode":"live","main":{"id":"gen3"},"pauses":{},"incidents":[{"key":"gpu1","what":"AI Server 1 GPU1","opened_at":%d,"status":"IDLE 30 min: backlog dry: ..."},{"key":"main","what":"gen3","opened_at":%d,"status":"ended (failed): failing: 6 actions in 6 h, needs a human"},{"key":"gpu0","what":"AI Server 1 GPU0","opened_at":%d,"status":"IDLE 12 min: backlog pass"}]}' \
+  $n $((n - 1200)) $((n - 120)) $((n - 120)) > $T/guard.json
+$AQ trainwatch --state-file $T/guard.json
+$AQ trainwatch --state-file $T/guard.json
+[[ $($AQ list | grep -c train-fixer) -eq 1 ]] || { echo "FAIL: expected exactly one fixer task"; exit 1; }
+p=$($AQ show train-fixer --json | /usr/bin/python3 -c 'import json,sys; t=json.load(sys.stdin); print(t["runner"], t["prompt"])')
+[[ "$p" == codex* && "$p" == *"gpu1@"*"backlog-dry"* && "$p" == *"main@"*"main-down"* && "$p" != *"gpu0@"* ]] || { echo "FAIL prompt: $p"; exit 1; }
+grep -q "a fixer is already queued" $AQ_HOME/trainwatch.log || { echo "FAIL: no dedupe log"; exit 1; }
+echo "PASS 4: trainwatch queues one codex fixer for the due incidents (idle GPU 20 min, main needs a human), not the young one"
 rm -rf "$T"

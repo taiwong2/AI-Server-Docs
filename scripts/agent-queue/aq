@@ -4,6 +4,9 @@
 Work survives Claude usage limits: tasks wait in ~/.claude/agent-queue/tasks/*.json, a LaunchAgent runner drains
 them with headless `claude -p`, sleeps (without calling the API) until the limit resets, then resumes the same
 session. Tasks marked fallback=dsh run through dsh (Flash-Next) during an outage; runner=dsh tasks always do.
+runner=codex tasks run through `codex exec` (OpenAI Codex CLI, model gpt-5.6-luna). `aq trainwatch` (LaunchAgent
+com.taiwong.trainwatch, every 3 min) reads the AI Server 2 train guard's incidents and queues one Codex fixer task when
+training stays down (deduped per incident, cooldown, daily cap).
 
 Docs: ~/Documents/AI-Server-Docs/docs/22-agent-queue.md. Stdlib only; light (no compute on the Mac).
 """
@@ -41,6 +44,16 @@ PROJECTS = os.path.expanduser(os.environ.get("AQ_PROJECTS", "~/.claude/projects"
 
 CLAUDE = os.environ.get("AQ_CLAUDE_BIN") or shutil.which("claude") or os.path.expanduser("~/.local/bin/claude")
 DSH = os.environ.get("AQ_DSH_BIN") or os.path.expanduser("~/Documents/deepseek-harness/bin/dsh")
+CODEX = os.environ.get("AQ_CODEX_BIN") or os.path.expanduser("~/.local/bin/codex")
+CODEX_MODEL = os.environ.get("AQ_CODEX_MODEL", "gpt-5.6-luna")
+CODEX_WORK = os.path.join(HOME, "codex-work")
+# Codex's sandbox (workspace-write + network) may write only its cwd (a scratch dir), /tmp and these: the queue (aq
+# note), agent worktrees, and the main checkout's .git (worktree / merge metadata). The shared checkout itself stays
+# read-only to it (AGENTS.md rule 2).
+CODEX_DIRS = [d for d in os.environ.get("AQ_CODEX_DIRS", ":".join([
+    HOME, os.path.expanduser("~/Documents/ce-wt"), os.path.expanduser("~/Documents/ClashEngineering/.git"),
+    os.path.expanduser("~/Documents/AI-Server-Docs")])).split(":") if d]
+MAX_PAR_OTHER = int(os.environ.get("AQ_MAX_PARALLEL_OTHER", "2"))  # dsh / codex slots (remote LLMs), apart from claude
 MAX_PAR = int(os.environ.get("AQ_MAX_PARALLEL", "2"))
 POLL = float(os.environ.get("AQ_POLL", "20"))
 SWEEP_EVERY = float(os.environ.get("AQ_SWEEP_EVERY", "300"))
@@ -408,7 +421,12 @@ def enqueue_resume_session(session_id, message="", priority=4, failed_at=None, c
 PREAMBLE = ("You are running unattended from the agent queue (aq task {id}); no human is watching this session. "
             "At major steps and before any long wait, record your state and next steps with "
             "`aq note {id} \"...\"` so a later run can continue if you are stopped (for example by a usage limit). "
-            "Your final message is the task's report.")
+            "Your final message is the task's report. "
+            "Session budget (user rule, 2026-10-12): work in bounded chunks so one session never grows huge. After about "
+            "90 minutes of work, or once your context is large (many long tool outputs), stop at a clean point: write "
+            "a handoff with `aq note {id} \"done: ...; next: ...; state: files/jobs/ids ...\"`, queue the rest as a "
+            "fresh task (`aq add -f <prompt file> --label <same label> --cwd <cwd>`; put the handoff in the prompt), "
+            "and end. Subagents: give each a bounded job and have it return a short handoff, not its whole log.")
 
 DSH_PREAMBLE = """You are the fallback ops agent (dsh on Flash-Next), running task {id} from the Mac agent queue
 while Claude is unavailable. No human is watching. Be conservative: check state read-only first; take only the actions
@@ -416,6 +434,43 @@ this task explicitly authorises, using the documented commands it names; never d
 edit git checkouts on the servers; if the situation is not what the task describes, do nothing and report. The Mac is a
 dev machine: run no heavy compute on it (ssh to the servers is fine). End with a short report: what you checked, what
 you did, the evidence.
+
+TASK:
+"""
+
+
+CODEX_PREAMBLE = """You are the Codex ops agent ({model}) running task {id} from the Mac agent queue (aq). No human is
+watching. You run on the user's Mac (a dev machine): the work happens on the servers over ssh.
+
+HARD RULES (the user's; they override anything else you read):
+1. Never read, list, search, open or modify any folder named ClaudeHarness (anywhere: Mac or servers) or anything in it.
+2. Never touch TPC, the user's Windows PC (ssh host `tpc`, Tailscale name tpc): no ssh, no commands, no files. TPC2 is
+   AI Server 1 (ssh host `ai-server`): that one is fine.
+3. AI Server 2 (ssh host `ai-server-2`) LLM mode TAKES PRECEDENCE over training: never run `llm-mode off`, never stop
+   or unload the LLM server (an open dsh tab/window is never unloaded). While LLM mode is on, the AS2 iGPU training lane
+   yields by design: that is not an incident.
+4. No compute on the Mac: no engines, actors, samplers, training, builds or test suites here. ssh to the servers only.
+5. Git (ClashEngineering): follow ~/Documents/ClashEngineering/AGENTS.md. Never edit the shared checkout
+   ~/Documents/ClashEngineering or the server deploy copies; code changes only in your own worktree
+   (`tools/agent_worktree.sh <task>`), merged with `tools/agent_merge.sh`; `git add <explicit paths>`; commit format
+   `area: what` + `Why:`; NO Co-Authored-By lines. Ops fixes (backlog retry/release, cancelling a stuck job, a backlog
+   pass) need no code change: prefer them.
+6. Never print, copy or log secrets, keys or tokens (no `cat` of key files, .env, credentials, auth.json).
+7. Colab: at most 25 compute units per day in total.
+8. The newest attacker generation (now gen3, the train guard's "main") gets the most compute; never starve it for
+   older or A/B work.
+9. Never delete checkpoints, run directories, run data or logs. Never force-push. Never `git reset/clean/stash` other
+   people's work.
+10. Prefer the existing tools over ad-hoc kills: on AS2 `python3 ~/ClashEngineering/ops/strixhalo/train_guard.py
+    status|incidents|pause|note`, `python3 ~/ClashEngineering/ops/strixhalo/backlog.py status|tick|retry ID|release
+    ID|hold ID`, `~/ClashEngineering/.venv/bin/python ~/ClashEngineering/ops/strixhalo/clashjobs.py list|cancel JOB`;
+    on AS1 `python C:\\AI-Server\\scripts\\jobqueue.py list|...`, the AI-PfLearnerKeeper / run_keeper tools. Read
+    docs/attacker/TRAIN_GUARD.md and AI-Server-Docs docs 25-27 before acting. If a fix would need a judgment call
+    (spending money, deleting data, changing research direction), do not do it: report it.
+11. Record what you did: `aq note {id} "done: ...; next: ...; state: ..."` after each major step, and one line in the
+    guard log: ssh ai-server-2 "python3 ~/ClashEngineering/ops/strixhalo/train_guard.py note 'codex {id}: ...'".
+Your final message is the task's report: what you found, what you changed, the evidence (commands and numbers),
+what still needs a human.
 
 TASK:
 """
@@ -433,9 +488,26 @@ def notes_for(keys):
     return "\n".join(out)
 
 
+SESSION_MAX_BYTES = int(os.environ.get("AQ_SESSION_MAX_MB", "3")) * 1024 * 1024
+
+
+def session_too_big(session_id):
+    """A transcript this big costs a lot of usage to reload on every resume: hand off to a fresh session instead."""
+    tr = find_transcript(session_id)
+    try:
+        return bool(tr) and os.path.getsize(tr) > SESSION_MAX_BYTES
+    except OSError:
+        return False
+
+
 def build_claude_cmd(t):
     cont = False
     cmd = [CLAUDE, "-p"]
+    fresh_from = None
+    if t.get("session_id") and session_too_big(t["session_id"]):
+        fresh_from, t["session_id"] = t["session_id"], None       # handoff instead of reloading a huge context
+    if t.get("resume_session_id") and not t.get("session_id") and session_too_big(t["resume_session_id"]):
+        fresh_from, t["resume_session_id"] = t["resume_session_id"], None
     if t.get("session_id"):  # an earlier attempt of this task already has a session: continue it
         cmd += ["--resume", t["session_id"]]
         cont = True
@@ -457,6 +529,13 @@ def build_claude_cmd(t):
         prompt = t["prompt"]
         if t.get("message"):
             prompt += "\n" + t["message"]
+    if fresh_from:
+        n = notes_for([t["id"], t.get("label")])
+        tr = find_transcript(fresh_from) or "?"
+        prompt = ("HANDOFF: an earlier session on this task (%s) grew too large to resume cheaply, so this is a fresh "
+                  "session. Its transcript: %s (read only the end: `aq transcript %s --last 40`). Re-check live "
+                  "state first and don't redo finished steps.%s\n\nThe original task:\n%s"
+                  % (fresh_from, tr, tr, ("\nResume notes:\n" + n) if n else "", prompt))
     cmd += ["--output-format", "json", "--append-system-prompt", PREAMBLE.format(id=t["id"])]
     if t.get("permission_mode"):
         cmd += ["--permission-mode", t["permission_mode"]]
@@ -484,6 +563,29 @@ def build_dsh_cmd(t, env):
         env.setdefault("DSH_PERMISSION_MODE", "workspace-write")
         return [node, os.path.realpath(entry), "--profile", "headless", prompt]
     return [DSH, "--profile", "headless", prompt]
+
+
+def build_codex_cmd(t, last_path):
+    """codex exec, non-interactive: workspace-write sandbox with network (ssh to the servers works), never asks for
+    approval, cwd = a scratch dir per task, extra writable dirs CODEX_DIRS, events as JSONL on stdout, the final
+    message to last_path."""
+    n = notes_for([t["id"], t.get("label")])
+    prompt = CODEX_PREAMBLE.format(id=t["id"], model=t.get("model") or CODEX_MODEL) + t["prompt"].replace("{task}", t["id"])
+    if t.get("message"):
+        prompt += "\n" + t["message"]
+    if n:
+        prompt += "\n\nNotes left by earlier runs of this task:\n" + n
+    cwd = os.path.join(CODEX_WORK, t["id"])
+    os.makedirs(cwd, exist_ok=True)
+    cmd = [CODEX, "exec", "-m", t.get("model") or CODEX_MODEL, "-s", "workspace-write",
+           "-c", "sandbox_workspace_write.network_access=true", "-c", 'approval_policy="never"',
+           "--skip-git-repo-check", "-C", cwd, "--json", "-o", last_path]
+    if t.get("effort"):
+        cmd += ["-c", 'model_reasoning_effort="%s"' % t["effort"]]
+    for d in CODEX_DIRS:
+        if os.path.isdir(d):
+            cmd += ["--add-dir", d]
+    return cmd + ["--", prompt], cwd
 
 
 class Runner:
@@ -516,6 +618,8 @@ class Runner:
             for k in ("CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_MESSAGING_SOCKET",
                       "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_PID", "CLAUDE_CODE_SESSION_ATTENDED"):
                 env.pop(k, None)
+        elif mode == "codex":
+            cmd, cwd = build_codex_cmd(t, out_path[:-4] + ".last")
         else:
             cmd = build_dsh_cmd(t, env)
             cwd = t["cwd"] if t.get("dsh_cwd") and os.path.isdir(t.get("cwd") or "") else os.path.join(WORK, t["id"])
@@ -529,7 +633,7 @@ class Runner:
         lf.flush()
         out = open(out_path, "w")
         p = subprocess.Popen(cmd, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=out,
-                             stderr=(lf if mode == "claude" else subprocess.STDOUT), start_new_session=True)
+                             stderr=(lf if mode in ("claude", "codex") else subprocess.STDOUT), start_new_session=True)
         out.close()
         t["status"] = "running"
         t["pid"] = p.pid
@@ -590,6 +694,18 @@ class Runner:
                 if is_error and (tl or LIMIT_RE.search(text)):
                     limit = True
                     reset = (tl[0] if tl else None) or parse_reset(text)
+            elif mode == "codex":
+                try:
+                    with open(out_path[:-4] + ".last", errors="replace") as f:
+                        result = f.read().strip()
+                except OSError:
+                    result = None
+                if not result:   # no final message: the last error events of the JSONL stream say why
+                    errs = [ln for ln in out.splitlines() if '"error"' in ln or '"turn.failed"' in ln]
+                    result = "\n".join(errs[-3:])[-2000:] or out.strip()[-2000:]
+                    is_error = True
+                if LIMIT_RE.search(result or ""):
+                    t["last_error"] = "codex usage limit: " + result[-200:]
             else:
                 result = out.strip()[-4000:]
             t["result"] = (result or "")[-8000:] if result else t.get("result")
@@ -645,7 +761,7 @@ class Runner:
                 self.finish(tid, rc)
         for tid, (p, mode, started, _o, _l) in list(self.procs.items()):
             t = load(tid) or {}
-            lim = t.get("timeout_s") or (10800 if mode == "claude" else 1800)
+            lim = t.get("timeout_s") or {"claude": 10800, "codex": 2700}.get(mode, 1800)
             if t.get("status") == "cancelled" or now() - started > lim:
                 with contextlib.suppress(Exception):
                     os.killpg(p.pid, signal.SIGTERM)
@@ -664,7 +780,8 @@ class Runner:
                 and t["id"] not in self.procs]
         pend.sort(key=lambda t: (-t.get("priority", 5), t.get("created", 0)))
         for t in pend:
-            if len(self.procs) >= MAX_PAR:
+            other = sum(1 for _p, m, *_r in self.procs.values() if m != "claude")
+            if len(self.procs) - other >= MAX_PAR and other >= MAX_PAR_OTHER:
                 break
             if self.superseded(t):
                 with qlock():
@@ -675,14 +792,17 @@ class Runner:
                     save(t)
                 rlog("superseded %s" % t["id"])
                 continue
-            if t.get("runner") == "dsh":
-                mode = "dsh"
+            if t.get("runner") in ("dsh", "codex"):
+                mode = t["runner"]
             elif blocked:
                 if t.get("fallback") != "dsh":
                     continue
                 mode = "dsh"
             else:
                 mode = "claude"
+            if (mode == "claude" and len(self.procs) - other >= MAX_PAR) or \
+                    (mode != "claude" and other >= MAX_PAR_OTHER):
+                continue   # this family's slots are full (claude: MAX_PAR; dsh + codex: MAX_PAR_OTHER)
             with qlock():
                 t = load(t["id"])
                 if t and t["status"] == "pending":
@@ -692,7 +812,8 @@ class Runner:
 
     def loop(self):
         self.recover()
-        rlog("runner up pid=%d max_parallel=%d claude=%s dsh=%s" % (os.getpid(), MAX_PAR, CLAUDE, DSH))
+        rlog("runner up pid=%d max_parallel=%d+%d claude=%s dsh=%s codex=%s" % (os.getpid(), MAX_PAR, MAX_PAR_OTHER,
+                                                                                CLAUDE, DSH, CODEX))
         stop = []
         signal.signal(signal.SIGTERM, lambda *a: stop.append(1))
         once = os.environ.get("AQ_ONCE")
@@ -867,6 +988,277 @@ def cmd_transcript(a):
         show(r)
 
 
+# ------------------------------------------------------------------------------------------- trainwatch
+# Deterministic trigger: training stays down -> one Codex fixer task. The AI Server 2 train guard
+# (ClashEngineering ops/strixhalo/train_guard.py, every 3 min) already fixes what it can; this only escalates what
+# it could not, after a threshold. No LLM decides whether to launch: the rules below do.
+TW_STATE = os.path.join(HOME, "trainwatch.json")
+TW_LOG = os.path.join(HOME, "trainwatch.log")
+TW_DISABLED = os.path.join(HOME, "trainwatch.disabled")
+TW_HOST = os.environ.get("AQ_TW_HOST", "ai-server-2")
+TW_GUARD = "~/ClashEngineering/ops/strixhalo/train_guard.py"
+TW_LABEL = "train-fixer"
+TW_CFG = {  # minutes an incident must stay open before a fixer launches; 0 = at once
+    "main-down": 10, "gpu-idle": 15, "backlog-dry": 15, "gpu-unreachable": 15, "guard-stale": 0,
+    "ab-stuck": None, "other": None,   # None: only when the guard says "needs a human"
+}
+TW_STALE_MIN = float(os.environ.get("AQ_TW_STALE_MIN", "20"))      # guard state older than this = the guard is down
+TW_COOLDOWN_MIN = float(os.environ.get("AQ_TW_COOLDOWN_MIN", "60"))  # per incident id
+TW_MAX_PER_DAY = int(os.environ.get("AQ_TW_MAX_PER_DAY", "6"))
+TW_TIMEOUT = os.environ.get("AQ_TW_TIMEOUT", "45m")
+TW_STALE_PASSES = int(os.environ.get("AQ_TW_STALE_PASSES", "3"))  # AS2 just woke from suspend: its timer needs ~3 min
+
+TW_PLAYBOOK = {
+    "main-down": """main run down: the newest generation's arm ({main}) is not stepping and the guard could not bring it
+back. Check `backlog.py status` for the arm + learner entries (held? failed with attempts used up? waiting on an `after`
+dependency? queued with no host?) and the run dir's metrics.jsonl / status.json on clash-sim (AS1 WSL). Typical fixes:
+`backlog.py retry <arm>` (+ its learner) then `backlog.py tick`; release a hold only if no agent note says why it is
+held (check `aq notes --recent 12h` and the guard log for a `pause`); a stuck AS2 proxy job -> `clashjobs.py cancel`.
+The run resumes from its newest checkpoint by itself (gen3_run.sh -> supervise --resume).""",
+    "gpu-idle": """an idle GPU: {name} has had no training job for a while and the guard's backlog pass launched
+nothing. Find why: `backlog.py status` (what is waiting, what is held, what each entry's `after` waits on), AS1
+`jobqueue.py list` and nvidia-smi, the AI-PfLearnerKeeper slots. Get it training: release / retry an eligible backlog
+entry (newest generation first: a gen3 learner / arm / A/B), or add one well-formed entry to the live overlay
+(`backlog.py add ENTRY.json`, validated with `backlog.py validate`) that trains the newest generation on that card.""",
+    "backlog-dry": """backlog dry: {name} is idle and nothing in the training backlog is eligible for it. Look at the
+held / done / failed entries and the recent aq notes of the attacker agents (`aq notes --recent 24h`) for work that is
+ready but parked; re-arm it. If nothing is parked for a reason you can verify, add ONE training entry for the newest
+generation (gen3) to the live overlay (`backlog.py add`, then `backlog.py validate` and `backlog.py tick`). Do not
+invent research directions: reuse an existing entry's shape (same cmd / launcher, a new tag or seed).""",
+    "gpu-unreachable": """{name}: the guard cannot read it (AI Server 1 unreachable or nvidia-smi failed). Check ssh
+ai-server, `nvidia-smi`, the Windows job queue, whether AS1 is asleep (docs 05-wake-and-power: wake it, never reboot it
+without a reason in the logs). Do not touch TPC.""",
+    "guard-stale": """the train guard itself is not running: its state on AI Server 2 is {age} old. Check `systemctl
+--user status train-guard.timer train-guard.service`, `journalctl --user -u train-guard -n 50`, the disable flag
+~/.config/train-guard.disabled (if present, find out who set it in the guard log / aq notes before removing it), and
+run one `train_guard.py tick --dry-run` to see whether it crashes. Restart the timer; fix a crash only through a repo
+change (worktree + agent_merge.sh + tools/deploy_sync.sh --apply srv2).""",
+    "ab-stuck": """an A/B arm is stuck and the guard gave up restarting it. Look at its job log; cancel it only if it is
+truly wedged (no metrics for hours); never delete its run dir.""",
+    "other": "an open train guard incident the guard could not fix.",
+}
+
+TW_PROMPT = """TRAINING INCIDENT. The Mac trainwatch (deterministic: aq trainwatch, every 3 min) read the AI Server 2 train
+guard state at {when} and found training down past its threshold. Your job: get training running again.
+
+Open incidents ({n}):
+{lines}
+
+What the guard already tried (it acts first; you only get what it could not fix):
+{tried}
+
+Playbook:
+{playbook}
+
+Steps:
+1. Diagnose, read-only first:
+   ssh ai-server-2 'python3 {guard} status; python3 {guard} incidents; tail -n 40 ~/clash-jobs/state/train_guard.log'
+   ssh ai-server-2 'python3 ~/ClashEngineering/ops/strixhalo/backlog.py status'
+   ssh ai-server-2 '~/ClashEngineering/.venv/bin/python ~/ClashEngineering/ops/strixhalo/clashjobs.py list'
+   ssh ai-server 'nvidia-smi --query-gpu=index,utilization.gpu,memory.used --format=csv'
+   ssh ai-server 'python C:\\AI-Server\\scripts\\jobqueue.py list'
+   aq notes --recent 12h   (other agents' state: do not undo their work; an agent `pause` in the guard log means
+   hands off that key until it expires)
+   Docs: ~/Documents/ClashEngineering/docs/attacker/TRAIN_GUARD.md, ~/Documents/AI-Server-Docs/docs/26-training-backlog.md
+   and 27-train-guard.md.
+2. Fix with the documented tools (backlog retry / release / tick, clashjobs cancel of a stuck job, a backlog overlay
+   entry). One change at a time.
+3. Verify: poll every 3-5 min for up to 20 min until the affected GPU(s) show utilization > 50 % on two reads in a row
+   and the main run's step advances between two `train_guard.py status` reads (and the incident closes in the guard
+   log). If it does not, say so; do not loop on fixes past {timeout}.
+4. Report: `aq note {{task}} "..."`, one line via `train_guard.py note`, and the final message (what was wrong, what you
+   did, the evidence, what still needs a human)."""
+
+
+def tw_log(msg):
+    ensure_dirs()
+    with open(TW_LOG, "a") as f:
+        f.write("%s %s\n" % (iso(), msg))
+    print(msg)
+
+
+def tw_fetch():
+    """-> (incidents view, error). Prefers `train_guard.py incidents --json`; falls back to the raw state file
+    (a deploy copy without that command) and derives ids / kinds here."""
+    cmd = ["ssh", "-o", "ConnectTimeout=20", "-o", "BatchMode=yes", TW_HOST,
+           "python3 %s incidents --json 2>/dev/null || cat ~/clash-jobs/state/train_guard.json" % TW_GUARD]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
+    except (subprocess.TimeoutExpired, OSError) as e:
+        return None, repr(e)
+    if r.returncode != 0:
+        return None, "ssh rc=%d %s" % (r.returncode, (r.stderr or r.stdout).strip()[-200:])
+    try:
+        return tw_view(json.loads(r.stdout)), None
+    except ValueError as e:
+        return None, "bad json: %r" % e
+
+
+def tw_kind(key, status):
+    s = (status or "").lower()
+    if key == "main":
+        return "main-down"
+    if key.startswith("ab:"):
+        return "ab-stuck"
+    if key.startswith("gpu") or key == "igpu":
+        if "unreachable" in s or "not reported" in s:
+            return "gpu-unreachable"
+        return "backlog-dry" if "backlog dry" in s else "gpu-idle"
+    return "other"
+
+
+def tw_view(d, t=None):
+    """Normalise either format to {age_s, llm_on, main, incidents: [{id, key, kind, age_s, needs_human, paused, ...}]}."""
+    t = t or now()
+    if "age_s" in d and isinstance(d.get("incidents"), list) and all("kind" in i for i in d["incidents"]):
+        d["age_s"] = t - (d.get("generated_at") or 0)
+        for i in d["incidents"]:
+            i["age_s"] = t - i["opened_at"]
+        return d
+    pauses = {k: p for k, p in (d.get("pauses") or {}).items() if p.get("until", 0) > t}
+    inc = []
+    for i in d.get("incidents") or []:
+        if i.get("closed_at"):
+            continue
+        i = dict(i)
+        keys = ("main", "main-learner", "main-cap") if i["key"] == "main" else (i["key"],)
+        i.setdefault("id", "%s@%d" % (i["key"], int(i["opened_at"])))
+        i["kind"] = i.get("kind") or tw_kind(i["key"], i.get("status"))
+        i["needs_human"] = "needs a human" in (i.get("status") or "")
+        i["paused"] = any(k in pauses for k in keys)
+        i["age_s"] = t - i["opened_at"]
+        i.setdefault("actions", [])
+        inc.append(i)
+    return {"generated_at": d.get("generated_at"), "age_s": t - (d.get("generated_at") or 0), "mode": d.get("mode"),
+            "llm_on": d.get("llm_on"), "main": (d.get("main") or {}).get("id") if isinstance(d.get("main"), dict)
+            else d.get("main"), "incidents": inc, "pauses": pauses}
+
+
+def tw_due(v, t=None, stale_streak=None):
+    """The deterministic rule: -> [(incident, reason)] that warrant a fixer now (before dedupe / cooldown)."""
+    t = t or now()
+    due = []
+    if v["age_s"] > TW_STALE_MIN * 60 and v.get("generated_at"):
+        if (stale_streak if stale_streak is not None else TW_STALE_PASSES) < TW_STALE_PASSES:
+            return due   # stale, but maybe AS2 only just woke up: wait for more passes
+        due.append(({"id": "guard-stale@%d" % int(v["generated_at"]), "key": "guard", "kind": "guard-stale",
+                     "what": "train guard", "status": "state %.0f min old" % (v["age_s"] / 60), "age_s": v["age_s"],
+                     "needs_human": False, "paused": False, "actions": []}, "guard state stale"))
+        return due   # its incidents are stale too
+    for i in v["incidents"]:
+        if i.get("paused"):
+            continue    # an agent paused that key for manual ops: hands off
+        thr = TW_CFG.get(i["kind"], None)
+        if i.get("needs_human"):
+            due.append((i, "guard gave up (needs a human)"))
+        elif thr is not None and i["age_s"] >= thr * 60:
+            due.append((i, "open %.0f min >= %s min" % (i["age_s"] / 60, thr)))
+    return due
+
+
+def tw_prompt(v, due):
+    lines, tried, kinds = [], [], []
+    for i, why in due:
+        lines.append("- %s  kind=%s  %s  open %.0f min%s: %s  [trigger: %s]" % (
+            i["id"], i["kind"], i.get("what") or i["key"], i["age_s"] / 60,
+            "  NEEDS A HUMAN" if i.get("needs_human") else "", i.get("status"), why))
+        for a in i.get("actions") or []:
+            tried.append("- %s %s: %s" % (iso(a[0]), a[1], a[2]))
+        if i["kind"] not in kinds:
+            kinds.append(i["kind"])
+    pb = []
+    for k in kinds:
+        names = ", ".join(i.get("what") or i["key"] for i, _ in due if i["kind"] == k)
+        pb.append("[%s] " % k + TW_PLAYBOOK.get(k, TW_PLAYBOOK["other"]).format(
+            main=v.get("main") or "gen3", name=names, age="%.0f min" % (v["age_s"] / 60)))
+    return TW_PROMPT.format(when=iso(), n=len(due), lines="\n".join(lines), guard=TW_GUARD, timeout=TW_TIMEOUT,
+                            tried="\n".join(tried[-12:]) or "- (none recorded)", playbook="\n\n".join(pb))
+
+
+def tw_guard_note(msg):
+    q = "'" + msg.replace("'", "") + "'"
+    with contextlib.suppress(Exception):
+        subprocess.run(["ssh", "-o", "ConnectTimeout=20", "-o", "BatchMode=yes", TW_HOST,
+                        "python3 %s note %s 2>/dev/null || echo \"$(date -u +%%FT%%TZ) note: \"%s >> "
+                        "~/clash-jobs/state/train_guard.log" % (TW_GUARD, q, q)], capture_output=True, timeout=60)
+
+
+def cmd_trainwatch(a):
+    """One pass (LaunchAgent com.taiwong.trainwatch, every 3 min)."""
+    if os.path.exists(TW_DISABLED) and not a.state_file:
+        print("trainwatch disabled (%s)" % TW_DISABLED)
+        return
+    t = now()
+    with qlock():
+        st = read_json(TW_STATE, {}) or {}
+    if a.state_file:
+        v, err = tw_view(read_json(a.state_file, {}) or {}, t), None
+    else:
+        v, err = tw_fetch()
+    if err:
+        st["fail_streak"] = st.get("fail_streak", 0) + 1
+        st["last_error"] = err
+        if st["fail_streak"] in (1, 5) or st["fail_streak"] % 20 == 0:
+            tw_log("cannot read the guard state (%dx): %s (AS2 asleep or offline: no launch)" % (st["fail_streak"], err))
+        with qlock():
+            write_json(TW_STATE, st)
+        return
+    st.update(fail_streak=0, last_ok=t, last_open=[i["id"] for i in v["incidents"]])
+    st["stale_streak"] = st.get("stale_streak", 0) + 1 if v["age_s"] > TW_STALE_MIN * 60 else 0
+    due = tw_due(v, t, st["stale_streak"])
+    launches = {k: [x for x in ts if t - x < 86400] for k, ts in (st.get("launches") or {}).items()}
+    launches = {k: ts for k, ts in launches.items() if ts}
+    day = [x for x in st.get("day") or [] if t - x < 86400]
+    if not due:
+        st.update(launches=launches, day=day)
+        with qlock():
+            write_json(TW_STATE, st)
+        if a.verbose:
+            print("nothing due (%d open incidents)" % len(v["incidents"]))
+        return
+    active = [x for x in all_tasks() if x.get("label") == TW_LABEL and x["status"] in ACTIVE]
+    fresh = [(i, why) for i, why in due if not launches.get(i["id"]) or
+             t - launches[i["id"]][-1] >= TW_COOLDOWN_MIN * 60]
+    skip = None
+    if active:
+        skip = "a fixer is already queued/running (%s)" % active[-1]["id"]
+    elif not fresh:
+        skip = "cooldown: every due incident had a fixer < %.0f min ago" % TW_COOLDOWN_MIN
+    elif len(day) >= TW_MAX_PER_DAY:
+        skip = "daily cap: %d fixer launches in 24 h" % len(day)
+    ids = ", ".join(i["id"] for i, _ in due)
+    if skip:
+        key = skip.split(":")[0].split(" (")[0] + "|" + ids
+        if st.get("last_skip") != key:   # log each distinct skip once, not every 3 min
+            tw_log("due %s: no launch, %s" % (ids, skip))
+            st["last_skip"] = key
+        st.update(launches=launches, day=day)
+        with qlock():
+            write_json(TW_STATE, st)
+        return
+    prompt = tw_prompt(v, fresh)
+    if a.dry_run:
+        print("[dry-run] would queue a codex task (label %s, timeout %s) for: %s\n--- prompt\n%s"
+              % (TW_LABEL, TW_TIMEOUT, ", ".join(i["id"] for i, _ in fresh), prompt))
+        return
+    task = make_task(prompt, label=TW_LABEL, runner="codex", priority=8, owner="trainwatch", max_attempts=1,
+                     cwd=HOME, timeout_s=parse_duration(TW_TIMEOUT), effort=a.effort,
+                     source={"trainwatch": [i["id"] for i, _ in fresh], "kinds": [i["kind"] for i, _ in fresh]})
+    for i, _ in fresh:
+        launches.setdefault(i["id"], []).append(t)
+    day.append(t)
+    st.update(launches=launches, day=day, last_skip=None, last_launch={"task": task["id"], "at": t,
+                                                                       "incidents": [i["id"] for i, _ in fresh]})
+    with qlock():
+        write_json(TW_STATE, st)
+    msg = "LAUNCH codex fixer %s (%s, %d/%d today) for %s" % (task["id"], CODEX_MODEL, len(day), TW_MAX_PER_DAY,
+                                                             "; ".join("%s %s (%s)" % (i["id"], i["kind"], w)
+                                                                       for i, w in fresh))
+    tw_log(msg)
+    if not a.state_file:
+        tw_guard_note("trainwatch (Mac): " + msg)
+
+
 # ---------------------------------------------------------------------------------------------------- CLI
 def cmd_add(a):
     prompt = " ".join(a.prompt) if a.prompt else ""
@@ -900,7 +1292,7 @@ def fmt_row(t):
     st = t["status"]
     if st == "pending" and t.get("not_before", 0) > now():
         st = "wait " + local(t["not_before"])
-    flag = t.get("runner") if t.get("runner") == "dsh" else ("fb:dsh" if t.get("fallback") == "dsh" else "")
+    flag = t.get("runner") if t.get("runner") in ("dsh", "codex") else ("fb:dsh" if t.get("fallback") == "dsh" else "")
     title = t.get("label") or t["prompt"].strip().splitlines()[0]
     return "%-25s %-15s p%-2s %-6s %-2s %-2s %-11s %s" % (t["id"], st, t.get("priority"), flag, t["attempts"],
                                                          t["limit_hits"], local(t["created"]), title[:60])
@@ -1045,14 +1437,15 @@ def main():
     p.add_argument("-p", "--priority", type=int, help="higher runs first (default 5)")
     p.add_argument("--owner")
     p.add_argument("--fallback", choices=["none", "dsh"], help="dsh: run on dsh while Claude is limited")
-    p.add_argument("--runner", choices=["claude", "dsh"], help="dsh: always run on dsh")
+    p.add_argument("--runner", choices=["claude", "dsh", "codex"],
+                   help="dsh: always run on dsh; codex: always run on `codex exec` (model AQ_CODEX_MODEL, gpt-5.6-luna)")
     p.add_argument("--resume", metavar="SESSION_ID", help="continue this Claude session with the prompt")
     p.add_argument("--fork", action="store_true", help="with --resume: fork instead of appending to the session")
     p.add_argument("--resume-agent", metavar="AGENT_ID", help="continue a dead background agent; prompt = message")
     p.add_argument("--permission-mode")
     p.add_argument("--model")
     p.add_argument("--effort")
-    p.add_argument("--timeout", help="kill after (default 3h claude, 30m dsh)")
+    p.add_argument("--timeout", help="kill after (default 3h claude, 45m codex, 30m dsh)")
     p.add_argument("--at", help="not before: +30m, 21:20, or ISO time")
     p.add_argument("--every", help="recurring: run again this long after each success")
     p.add_argument("--max-attempts", type=int)
@@ -1105,6 +1498,12 @@ def main():
     p = sp.add_parser("pause", help="stop starting tasks (--off to resume)")
     p.add_argument("--off", action="store_true")
     p.set_defaults(fn=cmd_pause)
+    p = sp.add_parser("trainwatch", help="one pass: AS2 train guard incidents -> a Codex fixer task when due")
+    p.add_argument("--dry-run", action="store_true", help="print the task it would queue, queue nothing")
+    p.add_argument("--state-file", help="read this guard state / incidents JSON instead of ssh (tests)")
+    p.add_argument("--effort", help="codex reasoning effort for the fixer (default: config)")
+    p.add_argument("-v", "--verbose", action="store_true")
+    p.set_defaults(fn=cmd_trainwatch)
     p = sp.add_parser("gc", help="archive finished tasks")
     p.add_argument("--older", default="7d")
     p.set_defaults(fn=cmd_gc)
