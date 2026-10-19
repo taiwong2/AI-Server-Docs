@@ -41,7 +41,7 @@ Find what keeps the model busy: `ss -tn state established '( sport = :8080 )'` (
 | Model | `huihui-ai/Huihui-Qwen3.8-Flash-Next-abliterated-GGUF`, `UD-Q4_K_XL/` (4 shards, 114.1 GB = 106.3 GiB on disk), the same weights as AI Server 1 |
 | MTP draft head | `unsloth/Qwen3.8-Flash-Next-GGUF`, `MTP/mtp-Qwen3.8-Flash-Next-shared-Q8_0.gguf` (2.8 GB) |
 | Model id | `qwen3.8-flash-next-uncensored` (matches AI Server 1) |
-| Context | **262,144** (native, full), 1 session, **MTP on** (adaptive, up to 7 draft tokens) |
+| Context | **262,144** (native, full), **2 sessions** (since 2026-10-19; was 1), **MTP on** (adaptive, up to 7 draft tokens). gufo has no RoPE/YaRN flag, so >262k is not possible on gufo |
 | Endpoint | `http://100.65.60.112:8080/v1` (tailnet; `ai-server-2:8080`). OpenAI Chat/Completions/Responses and Anthropic `/v1/messages`, streaming, tools. `/health`, `/ready`, `/metrics` |
 | Auth | Bearer key. On the box: `/etc/ai-server-2/llm.env` (`LLM_API_KEY=`, root 600). On the Mac: `~/.config/ai-server-2/llm_api_key` (600). Every route needs it, including `/health`. |
 | Thinking | On by default (Qwen `xhigh`). Per request: `"reasoning_effort": "none"` disables it |
@@ -59,8 +59,9 @@ Find what keeps the model busy: `ss -tn state established '( sport = :8080 )'` (
 The 26.8 GiB per-layer-embedding (PLE / n-gram) table is IQ4_NL and only read row by row. The bytes read per
 token are the experts (41 GiB Q4_K + 25 GiB Q5_1 + 4 GiB Q8_0 + 1 GiB Q5_K) times the active fraction, plus about
 4 GiB of Q8_0 dense weights. The hybrid KV is small (only the full-attention layers grow), so full 262k context
-costs only a few GiB and needs no KV quantization. gufo's retained prompt cache is capped at 4 GiB
-(`--cache-ram-bytes 4294967296`; the default would take up to 32 GiB).
+costs only a few GiB and needs no KV quantization. gufo's retained prompt cache is capped at 8 GiB
+(`--cache-ram-bytes 8589934592` since 2026-10-19, was 4 GiB; the default would take up to 32 GiB). With
+`--sessions 2` + 8 GiB the box still shows ~13-16 GiB MemAvailable after load, as before.
 
 **Coexistence with the battle box:** the model leaves about 23 GiB for the OS and jobs. clashjobs'
 `mem_reserve_gb` was lowered to 4 to let jobs run beside it. With att-ppo-f plus v22-pool running, MemAvailable
@@ -187,6 +188,63 @@ IQ4_NL / BF16. So the stock smaller quants (Q4_K_M, IQ4_XS, IQ3_*, Q2) do not lo
 saving is requantizing the Q5_1 / Q8_0 experts to Q4_K: about 8 GiB (~12% fewer expert bytes per token),
 for maybe +8% decode. That would mean downloading huihui's abliterated Q8_0 (188 GB) and building a custom mix.
 Not done.
+
+## Halogen evaluation and the dsh slow-turn fix (2026-10-19)
+
+**Problem:** dsh sessions at ~190k tokens took 1-6 min per turn. Cause, reproduced: with `--sessions 1` any other
+client (AS1 relay, Discord bot, a dsh subagent) takes the only GPU session, and the 190k conversation's snapshot
+(5-9 GB) does not fit the 4 GiB RAM cache, so the next turn re-prefills from an 88k checkpoint (64-69 s) or from 0
+(~125 s). **Fix applied:** `--sessions 2 --cache-ram-bytes 8589934592` in the Quadlet (backup
+`/srv/llm/llm-gufo.container.bak-20261019-sessions1`). Same trace afterwards: 1.7-2.0 s per turn.
+
+**Halogen** ([peonist-ai/halogen-flash-server](https://github.com/peonist-ai/halogen-flash-server) 0.18.11,
+image `ghcr.io/peonist-ai/halogen-flash-server@sha256:a5797467d2bff173e0c661d9700292bd55eac305faff68c86261ae35385ad6ad`)
+was benchmarked side by side on the same huihui UD-Q4_K_XL GGUF (it repacks GGUFs losslessly, with its own draft
+head `qwen38-flash-next-mtp.hgn`). It is a **closed-source binary** under Peonist LLC's EULA (free use, no source; the
+repo has only docs, deploy scripts and bench tools; no release checksums or signatures; the image runs as root in
+the container and makes no outbound connections unless `HALOGEN_DOWNLOAD` is set). **Not switched.** Files kept for a
+retest: `/srv/llm/models/peonist-ai/halogen-qwen3.8-flash-next/` (MTP head, tokenizer, vision tower, sha256 = HF
+LFS), `~/halogen_bench/` (results `*.jsonl`, `halogen_run.sh`), copies in `scripts/ais2-llm/`.
+
+Script `scripts/ais2-llm/llmbench.py` (streaming, greedy, thinking off, code-file corpus with a nonce, needle at
+the middle). Both engines had the box to themselves (jobs requeued), 4 CPU threads.
+
+| | gufo 0.10.0 (old: 1 session, 4 GiB) | gufo (new: 2 sessions, 8 GiB) | halogen 0.18.11 (GGUF, 2 slots, pool 262k) |
+|---|---|---|---|
+| cold 32k (33k tok) TTFT | 23.6 s | | 22.2 s |
+| cold 190k (186-191k) TTFT | 131 s (1,416 tok/s) | 121 s at 178k | 130 s (1,473 tok/s) |
+| warm follow-up at 190k TTFT | 0.31 s | | 0.69 s |
+| decode, short prose / code | 31.9 / 52.2 tok/s | | 37.6 / 58.0 tok/s |
+| decode at 32k / 190k | 32.0 / 32.1 | | 38.3 / 37.8 |
+| dsh trace, 178k + 2k/turn, no other client | 1 full miss in 5 (129 s; a live client hit :8080), else 1.9-2.9 s | 7/7 hits, 1.8-2.0 s | 5/5 hits, 2.5-2.8 s |
+| same trace, another client between turns | **64-69 s every turn** | **1.7-2.0 s** | 2.5-2.7 s |
+| 2 concurrent 32k cold / warm (wall for both) | 49.6 s (serialised) / 1.95 s | 50.7 s / 1.07 s | 44.2 s / 2.3 s; 4 pairs, no empty reply |
+| largest prompt tested | 233,823 (2026-10-10) | | 242,418, needle found |
+| needle at 32k / 190k; 4 short facts | ok / ok; 3/4 | | ok / ok; 3/4 (same miss) |
+| memory | needs 104 GiB free; leaves 13-23 GiB | leaves 13-16 GiB | **78.2 GiB weights pinned + pool + 11 GiB work; refuses to start under ~94 GiB free + needs ~112 for the full load; leaves ~12 GiB** |
+
+Why not switched: tuned gufo matches or beats it on the dsh case (1.7-2.0 s vs 2.5-2.7 s per turn), cold prefill
+is equal, halogen's only clear win is +15-18% decode. Against that: ~8-10 GiB more RAM (every `llm-mode on` would
+have to requeue almost all Clash jobs), a closed binary, open issue
+[#172](https://github.com/peonist-ai/halogen-flash-server/issues/172) (K-quant GGUFs such as UD-Q4_K_XL can return
+an empty reply under concurrent requests; not seen in 8 pairs here), and no vision unless its own tower is mounted.
+The [Sleeping Robots A/B](https://sleepingrobots.com/dreams/halogen-vs-nathanw-qwen38-flash-next-strix-halo/)
+(halogen 0.5.8 vs Nathanw llama.cpp) came to the same kind of verdict: halogen wins cold prefill, loses warm decode at
+depth, closed binary, kept llama.cpp.
+
+**1M context: not possible with this model on 128 GB.** Qwen3.8-Flash-Next is 262,144 native; the model card
+allows static YaRN x4 to 1,048,576. Halogen implements it (`HALOGEN_ROPE_YARN=4 HALOGEN_CTX=1048576`; their figures:
+1,004,581-token prefill 17.9 min at 937 tok/s, decode 38 tok/s, needle 9/9). Its KV costs ~28 KiB a position, so a
+1M pool is ~28 GiB (+11 GiB prefill working memory at MAX_TOK 16384). With our abliterated UD-Q4_K_XL that is
+78.2 + 28 + 11 + 1.3 = **~118.5 GiB of 121 GiB MemTotal**, and the engine refuses to pin below 16 GiB free: no.
+524,288 (YaRN x2, 14.6 GiB pool) is ~105 GiB: only with the box empty and nothing else, so not stable either. 1M fits
+only with halogen's own 62 GiB `v2` checkpoint, which is the stock (refusing) model; the only abliterated `.hgn`
+(`Quat3rnion/halogen-qwen3.8-flash-next-v2-abliterated`, a re-conversion of orcarouter's BF16, 0 downloads) states
+that it has no inference, quality or context validation. gufo has no RoPE scaling flag at all. Others on Strix Halo:
+[strixite](https://github.com/shawnshekari/strixite) (from-scratch HIP engine, claims ~50 tok/s to 492k),
+[GSQHalo.cpp](https://github.com/Aristo94/GSQHalo.cpp) (llama.cpp fork, 4 x 256k with Q8_0 KV and an SSD KV cache);
+nobody reported 1M on this model on 128 GB except halogen with its own 62 GiB checkpoint. **Largest stable context
+here stays 262,144.**
 
 ## Files and services (on the box)
 

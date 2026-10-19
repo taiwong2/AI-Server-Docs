@@ -28,12 +28,12 @@ RunInit=true
 StopTimeout=80
 # 2 physical cores (4 threads) on CCD1; the battle simulation gets the other 14 cores
 PodmanArgs=--cpuset-cpus=14,15,30,31 --oom-score-adj=-900
-Exec=sh -c "exec gufo serve --host 0.0.0.0 --port 8080 --sessions 1 --api-key \"$$LLM_API_KEY\" llm \
+Exec=sh -c "exec gufo serve --host 0.0.0.0 --port 8080 --max-request-bytes 268435456 --sessions 2 --api-key \"$$LLM_API_KEY\" llm \
   --model /models/huihui-ai/Huihui-Qwen3.8-Flash-Next-abliterated-GGUF/UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00001-of-00004.gguf \
-  --served-model-name qwen3.8-flash-next-uncensored \
+  --mmproj /models/huihui-ai/Huihui-Qwen3.8-Flash-Next-abliterated-GGUF/UD-Q4_K_XL/mmproj-Qwen3.8-Flash-Next-BF16.gguf --served-model-name qwen3.8-flash-next-uncensored \
   --context 262144 \
   --speculative mtp --mtp-model /models/unsloth/Qwen3.8-Flash-Next-GGUF/MTP/mtp-Qwen3.8-Flash-Next-shared-Q8_0.gguf \
-  --cache-ram-bytes 4294967296"
+  --cache-ram-bytes 8589934592"
 
 [Service]
 # a battle job is OOM-killed before the model (GPU memory is not in RSS; this covers the host-side process)
