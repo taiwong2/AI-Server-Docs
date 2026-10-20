@@ -93,6 +93,12 @@ disabled. Several streams because one teacher's coordinator process is single-th
 IOWeight 20, MemoryMax 10G each, Restart=always. **Filler always yields**: keep >= 10 GB MemAvailable for owner jobs
 (the dsg23 judge was OOM-killed when three 13G streams ran). **2026-10-11: fleet-teach and fleet-teach2 stopped** (memory for the pf arm's 6x6 actors, peak 42 GB); they come back only under the clash-sim runner's memory admission. Do not lower MemoryMax at runtime below current usage
 (it OOM-kills the unit); shrink --envs first. Stop: `systemctl disable --now fleet-teach fleet-teach2`.
+**2026-10-20: both streams MOVED to AI Server 2** (task teacher-move). Here they were SIGINT'd (clean flush) and are
+now stopped + `disabled`; do not re-enable them, the AS1 out dirs are frozen copies (left in place, not deleted). They
+continue on AS2 as clashjobs `teach-teacher_v5f` / `teach-teacher_v5f2` (--idle, 6 cpus, 14 GB, --retries 50) from
+worktree `~/ce_teacher` @ 89955f2, same arguments, out dirs `~/ClashRuns/attv3_teacher/teacher_v5f{,2}` (pools under
+`~/ClashRuns/attv3_teacher/pools/att5`), launcher `~/ClashRuns/attv3_teacher/run_teacher.sh OUT SEED` (SIGTERM ->
+KeyboardInterrupt, so a cancel / requeue flushes the shard buffer). Peak RSS was 9.9-10.0 GB of the 10G cap here.
 
 ### clash-sim job runner: AS2 CPU jobs on AI Server 1 (2026-10-11)
 Owner: fleet-utilisation agent. Code: ClashEngineering `ops/aiserver/clashsim.py` (AS2 driver) + `ops/strixhalo/clashjobs.py`
