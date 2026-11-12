@@ -76,3 +76,14 @@ Removing `~/.local/share/waydroid` deletes Grimwick47 unless it was linked to a 
 
 Research jobs on AS2 have priority: keep the cgroup caps and the RAM guard. Do not patch the game or hook its
 protector. Never log into accounts on the user's behalf; the user signs in / links Supercell ID.
+
+## LLM player (from 2026-11-12 14:00 CST)
+
+The user gave Grimwick47 to an LLM to play everything except battles (upgrades, building, layouts, clan/war management).
+- Control CLI on AS2: `~/waydroid-coach/coc up|busy|shot|tap|hold|swipe|drag|text|back|home|zoomout`.
+- Player: aq task `coc-player` (Sonnet, every 2 h, <= ~25 min per session), prompt
+  `~/.claude/agent-queue/prompts/coc/player.md`; memory = `~/waydroid-coach/llm-player/journal.md` (+ `shots/`).
+- It never acts while the user is connected with scrcpy, or while `~/waydroid-coach/llm-player/PAUSE` exists
+  (`touch` to pause, `rm` to resume). It stops Waydroid after each session to give RAM back to research, and does not
+  start when host MemAvailable < 30 GB.
+- Stop for good: `aq cancel <coc-player id>`.
