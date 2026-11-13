@@ -87,3 +87,17 @@ The user gave Grimwick47 to an LLM to play everything except battles (upgrades, 
   (`touch` to pause, `rm` to resume). It stops Waydroid after each session to give RAM back to research, and does not
   start when host MemAvailable < 30 GB.
 - Stop for good: `aq cancel <coc-player id>`.
+
+## ClashLLM (from 2026-11-12 evening; replaces the Sonnet pixel player)
+
+ClashLLM (`clashllm/` in ClashEngineering) lets a small model (Claude Haiku via the Anthropic API by default) play
+Grimwick47: compact JSON state + numbered menu in, one-line reply out, every action executed and verified by code.
+Full runbook: `clashllm/README.md` in the repo.
+- Code: server worktree `~/ce_clashllm`, venv `~/clashllm-venv`, data `~/clashllm-data/accounts/grimwick47/`
+  (journal, shots, schedule.txt). API key: `~/.config/clashllm/anthropic_key` (chmod 600).
+- One session: `cd ~/ce_clashllm && ~/clashllm-venv/bin/python -m clashllm play --backend anthropic --max-steps 20`.
+- Scheduled: systemd user unit `clashllm-daemon` (`systemctl --user start|stop clashllm-daemon`; never enabled at
+  boot). It wakes when a builder frees up or a storage fills (<= 3 h), and stops Waydroid after a session it started.
+- Pause: `touch ~/clashllm-data/PAUSE` (the old `~/waydroid-coach/llm-player/PAUSE` also works); scrcpy attached =
+  hands off, re-checked during long actions. One driver at a time through the device lease (`coc lease STATUS`).
+- Battles: attack bridge off by default; `echo single > ~/clashllm-data/ATTACK` allows goblin maps only.
