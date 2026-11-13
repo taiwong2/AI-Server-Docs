@@ -151,3 +151,11 @@ Without LLM mode: ~77 GiB usable with 6 p100exit lanes running.
 - A flag that outlives a reboot no longer sticks: the idle watcher turns LLM mode off when the model is gone
   (llm-gufo not running, no `on` in flight), and keepers starts a fresh watcher with systemd-run (its old `restart`
   of the transient unit returned 5 for an hour after the power cycle).
+
+**Waydroid after the 11-13 reboot (fixed 12:00 CST).** `coc up` returned `NOT_STARTED adb`: `/var/lib/waydroid/waydroid.cfg`
+named the binder nodes `binder`/`vndbinder`/`hwbinder`, but Waydroid allocates `anbox-*` nodes in binderfs at boot, so
+LXC could not bind-mount `/dev/binder` and the 666 chmod hit a missing path. cfg now says `anbox-binder`,
+`anbox-vndbinder`, `anbox-hwbinder` and `lxc/waydroid/config_nodes` mounts `/dev/anbox-*` onto `dev/{binder,...}`
+(backups `~/waydroid-coach/*.bak-binder1113`). After changing either, `sudo systemctl restart waydroid-container`
+(it prepares/chmods the drivers once per service start). A stale "Session RUNNING / Container STOPPED" needs
+`wd.sh stop; sudo waydroid session stop` before `coc up` (wd-session stays active otherwise).
