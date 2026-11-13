@@ -96,8 +96,18 @@ Full runbook: `clashllm/README.md` in the repo.
 - Code: server worktree `~/ce_clashllm`, venv `~/clashllm-venv`, data `~/clashllm-data/accounts/grimwick47/`
   (journal, shots, schedule.txt). API key: `~/.config/clashllm/anthropic_key` (chmod 600).
 - One session: `cd ~/ce_clashllm && ~/clashllm-venv/bin/python -m clashllm play --backend anthropic --max-steps 20`.
-- Scheduled: systemd user unit `clashllm-daemon` (`systemctl --user start|stop clashllm-daemon`; never enabled at
-  boot). It wakes when a builder frees up or a storage fills (<= 3 h), and stops Waydroid after a session it started.
-- Pause: `touch ~/clashllm-data/PAUSE` (the old `~/waydroid-coach/llm-player/PAUSE` also works); scrcpy attached =
-  hands off, re-checked during long actions. One driver at a time through the device lease (`coc lease STATUS`).
-- Battles: attack bridge off by default; `echo single > ~/clashllm-data/ATTACK` allows goblin maps only.
+- **Switched ON 2026-11-12 evening (user's request): unattended play + multiplayer farming.** The systemd user unit
+  `clashllm-daemon` is enabled (lingering on, survives logout/reboot). Each wake: PAUSE/scrcpy check -> Sonnet
+  commander if its directive is > 24 h old -> `coc up` (refused below the RAM floor: retry in 20 min) -> Haiku
+  session (<= 40 steps, <= 45 min: collect, build from the plan, farm when the next upgrade needs loot, train) ->
+  schedule.txt/json + status.json -> Waydroid stopped (under the device lease) when the next wake is > 20 min away.
+- Report: `cd ~/ce_clashllm && ~/clashllm-venv/bin/python -m clashllm report` (last 24 h: sessions, upgrades,
+  attacks, stars, loot, gems spent, errors, next wake; `--hours N`, `--json`). Next wake:
+  `cat ~/clashllm-data/accounts/grimwick47/schedule.txt`. Log: `journalctl --user -u clashllm-daemon -f`.
+- **Pause** (daemon keeps running, touches nothing): `touch ~/clashllm-data/PAUSE`; resume: `rm ~/clashllm-data/PAUSE`.
+  The old `~/waydroid-coach/llm-player/PAUSE` also works; scrcpy attached = hands off (retry in 10 min).
+- **Stop**: `systemctl --user stop clashllm-daemon`; keep it off after reboot: `systemctl --user disable --now
+  clashllm-daemon`; on again: `systemctl --user enable --now clashllm-daemon`. Waydroid: `~/waydroid-coach/wd.sh stop`.
+- Attack switch `~/clashllm-data/ATTACK` (or `$CLASHLLM_ATTACK`): `off` | `single` (goblin maps) | `multi`
+  (multiplayer farming; set 11-12). Anything else is off. `echo off > ~/clashllm-data/ATTACK` stops attacks only.
+- One driver at a time through the device lease (`coc lease STATUS`); hold it (`coc lease ACQ me`) to do manual work.
