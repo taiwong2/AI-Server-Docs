@@ -127,6 +127,9 @@ where they run.
 
 **Idle:** `llmmode-idle` (transient user unit started by `on`) turns LLM mode off after 30 min (`LLM_IDLE_MIN`) with
 no `llm-mode touch` (dsh sends one every 5 min) and no non-health request in the llm-gufo journal.
+It also turns LLM mode off when the model is gone (llm-gufo not running and no `llm-mode on` in flight, e.g. after a
+reboot: llm.target is never enabled). keepers restarts a missing watcher with systemd-run while the flag is on
+(2026-11-13: after the power cycle the flag stayed on with no model for an hour). Memory incident and guard: docs/28.
 
 **Key:** llm-mode runs as `taiwong`, so it reads the key from `~/.config/ai-server-2/llm_api_key` (600). On first use
 it copies the key there from `/etc/ai-server-2/llm.env` through `sudo -n`.

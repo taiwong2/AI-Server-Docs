@@ -111,3 +111,43 @@ Full runbook: `clashllm/README.md` in the repo.
 - Attack switch `~/clashllm-data/ATTACK` (or `$CLASHLLM_ATTACK`): `off` | `single` (goblin maps) | `multi`
   (multiplayer farming; set 11-12). Anything else is off. `echo off > ~/clashllm-data/ATTACK` stops attacks only.
 - One driver at a time through the device lease (`coc lease STATUS`); hold it (`coc lease ACQ me`) to do manual work.
+
+## 2026-11-13 thrash hang and the memory guard
+
+**What happened (05:15-11:06 CST, power cycle at 11:09).** LLM mode went on at 03:19; gufo loaded at 03:25 with
+`gpu_device_used_mib=100065` (97.7 GiB GTT; docs/17 measured 90.8 GiB with a smaller cache) and the 2-session prompt
+cache added ~6 GiB of GTT snapshots under heavy dsh use (123k-token prompts until 05:13). The kernel OOM reports show
+`gpu_active` 106-107 GiB. Waydroid + ClashLLM were started beside it at 05:01 (daemon; the floor then still used plain
+MemAvailable) and 05:13 (manual). Global OOMs at 05:02 (clashllm-daemon), 05:27, 05:52, 07:09 and 10:40 picked small
+processes (Waydroid apps, baseimg) while the 8 GB swap file was full and kswapd thrashed; sshd could not finish a
+banner for hours. Userspace anon at the 05:27 OOM was only 3.4 GB. The GPU memory is not killable (gufo -900).
+
+**CMA mystery.** ~13.2 GiB of pageblocks are migratetype CMA (`/proc/pagetypeinfo` CMA column 6372 Normal + 380 DMA32
+blocks, `/proc/zoneinfo` cma 3,457,024 pages) although the boot log says `0K cma-reserved`, `/sys/kernel/mm/cma` is
+empty and the cmdline has no `cma=` (kernel 7.0.0-43, CONFIG_CMA_SIZE_MBYTES=0, CONFIG_DMA_CMA/DMA_NUMA_CMA=y). These
+pages count in MemAvailable but GTT (TTM, non-movable) and kernel allocations cannot use them; at the 05:27 OOM 10 GB
+of `free_cma` sat unused. So **usable = MemAvailable - CmaFree** everywhere (coc floors, ramguard, memguard).
+Proposed (not applied, needs a reboot and the user): find the owner first (`echo 1 > /sys/kernel/mm/page_owner` needs
+`page_owner=on` on the cmdline; or try a boot with `cma=0` and compare `/proc/pagetypeinfo`). Getting those 13 GiB
+back is the one change that would make Waydroid + ClashLLM fit beside a full-cache gufo without touching gufo.
+
+**Budget with LLM mode on (measured 11-13).** MemTotal 121.2 GiB - CMA 13.2 = ~108 GiB usable. gufo 97.7 at load +
+up to ~6 GiB cache = ~103.5; kernel/services ~2. Left: **~2-3 GiB**. Waydroid (~3 GB RSS + GPU buffers) + ClashLLM
+lean (~3.3 GB peak) need ~6-7 GB plus margin, so they do **not** fit beside the model once the prompt cache has filled.
+The `coc up` floor (9 GB usable in LLM mode) refuses correctly (it did at 05:12). Options, the user's call: free the
+CMA blocks (above); gufo `--cache-ram-bytes` 8 GiB -> 2 GiB (~4-5 GiB back); `--sessions 1` (halves the KV).
+Without LLM mode: ~77 GiB usable with 6 p100exit lanes running.
+
+**Deployed levers (ops/strixhalo/memguard/, `sudo sh ~/ClashEngineering/ops/strixhalo/memguard/install.sh`):**
+- `as2-memguard.service` (root, mlockall, every 2 s): warn at usable < 4 GB / PSI some > 40; shed `wd-session`,
+  `clashllm-daemon`, `wd-weston` at usable < 2 GB, PSI full > 20, or swap almost full with usable < 4 GB; at usable < 1 GB
+  or PSI full > 50 SIGKILL the biggest process with oom_score_adj >= 500 (Waydroid apps 905, ClashLLM 1000). Never
+  clashjobs (200), gufo (-900), sshd (-1000), tailscaled (-950). Overrides: `/etc/ai-server-2/memguard.json`. Log:
+  `journalctl -u as2-memguard`, `/var/log/as2-memguard.log`.
+- `zram-as2.service`: 8G zstd zram at priority 100 ahead of the 8G swap file.
+- ssh.service `MemoryMin=256M` (no OOMScoreAdjust: sshd sets itself to -1000 and hands the unit value to sessions),
+  tailscaled `OOMScoreAdjust=-950 MemoryMin=256M`.
+- `llm-mode` stops `clashlab-baseimg` while the model is resident (llm_lanes.json `pause_units`).
+- A flag that outlives a reboot no longer sticks: the idle watcher turns LLM mode off when the model is gone
+  (llm-gufo not running, no `on` in flight), and keepers starts a fresh watcher with systemd-run (its old `restart`
+  of the transient unit returned 5 for an hour after the power cycle).
