@@ -122,21 +122,24 @@ MemAvailable) and 05:13 (manual). Global OOMs at 05:02 (clashllm-daemon), 05:27,
 processes (Waydroid apps, baseimg) while the 8 GB swap file was full and kswapd thrashed; sshd could not finish a
 banner for hours. Userspace anon at the 05:27 OOM was only 3.4 GB. The GPU memory is not killable (gufo -900).
 
-**CMA mystery.** ~13.2 GiB of pageblocks are migratetype CMA (`/proc/pagetypeinfo` CMA column 6372 Normal + 380 DMA32
-blocks, `/proc/zoneinfo` cma 3,457,024 pages) although the boot log says `0K cma-reserved`, `/sys/kernel/mm/cma` is
-empty and the cmdline has no `cma=` (kernel 7.0.0-43, CONFIG_CMA_SIZE_MBYTES=0, CONFIG_DMA_CMA/DMA_NUMA_CMA=y). These
-pages count in MemAvailable but GTT (TTM, non-movable) and kernel allocations cannot use them; at the 05:27 OOM 10 GB
-of `free_cma` sat unused. So **usable = MemAvailable - CmaFree** everywhere (coc floors, ramguard, memguard).
-Proposed (not applied, needs a reboot and the user): find the owner first (`echo 1 > /sys/kernel/mm/page_owner` needs
-`page_owner=on` on the cmdline; or try a boot with `cma=0` and compare `/proc/pagetypeinfo`). Getting those 13 GiB
-back is the one change that would make Waydroid + ClashLLM fit beside a full-cache gufo without touching gufo.
+**CMA blocks: solved 2026-11-13 12:49 CST (`kho=off`).** The ~13.2 GiB of migratetype-CMA pageblocks (counted in
+MemAvailable, unusable by GTT/kernel allocations; `CmaTotal 0`, `/sys/kernel/mm/cma` empty) were the **Kexec HandOver
+(KHO) scratch areas**: Ubuntu's 7.0 kernel has `CONFIG_KEXEC_HANDOVER_ENABLE_DEFAULT=y`, and KHO marks its scratch
+memory MIGRATE_CMA. `/sys/kernel/debug/kho/out/scratch_len` listed 0x2f800000 + 0x210a00000 + 0x10be00000 = 13.2 GiB.
+Fix: `kho=off` appended to `GRUB_CMDLINE_LINUX_DEFAULT` (backup `/etc/default/grub.bak-kho1113`), `update-grub`,
+reboot. After it: `CmaFree 0`, MemAvailable 118.8 GB idle. KHO is only for live-update kexec, unused here. The
+`usable = MemAvailable - CmaFree` formula in the floors/guards stays correct (CmaFree is now 0).
+The reboot killed the 6 p100exit lanes (exit -15, marked failed, no auto-requeue); they were resubmitted with the same
+env (resumable script) as 09148ba53f17 b13e33bcd9c8 1ee696cf8903 441fca705782 6fb8013340d7 35345ed98c29.
 
-**Budget with LLM mode on (measured 11-13).** MemTotal 121.2 GiB - CMA 13.2 = ~108 GiB usable. gufo 97.7 at load +
+**Budget with LLM mode on (measured 11-13, before `kho=off`).** MemTotal 121.2 GiB - CMA 13.2 = ~108 GiB usable. gufo 97.7 at load +
 up to ~6 GiB cache = ~103.5; kernel/services ~2. Left: **~2-3 GiB**. Waydroid (~3 GB RSS + GPU buffers) + ClashLLM
 lean (~3.3 GB peak) need ~6-7 GB plus margin, so they do **not** fit beside the model once the prompt cache has filled.
 The `coc up` floor (9 GB usable in LLM mode) refuses correctly (it did at 05:12). Options, the user's call: free the
 CMA blocks (above); gufo `--cache-ram-bytes` 8 GiB -> 2 GiB (~4-5 GiB back); `--sessions 1` (halves the KV).
 Without LLM mode: ~77 GiB usable with 6 p100exit lanes running.
+**After `kho=off`:** ~121 GiB usable - gufo ~103.7 - ~2 = **~15 GiB left** with a full cache, enough for Waydroid +
+ClashLLM (~6-7 GB) with margin; the 9 GB `coc up` floor now passes. To be confirmed live the next time LLM mode is on.
 
 **Deployed levers (ops/strixhalo/memguard/, `sudo sh ~/ClashEngineering/ops/strixhalo/memguard/install.sh`):**
 - `as2-memguard.service` (root, mlockall, every 2 s): warn at usable < 4 GB / PSI some > 40; shed `wd-session`,
