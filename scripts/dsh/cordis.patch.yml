@@ -1,17 +1,19 @@
 # Default-profile provider settings. DSH uses the local proxy on 127.0.0.1:1235
 # (bin/dsh-mac-proxy.mjs, LaunchAgent com.tai.dsh-mac-proxy; source AI-Server-Docs/scripts).
-# flash-next = main entry, served by AI Server 2 (Strix Halo, gufo, 262k): typing `dsh` turns on its LLM mode
-# (bin/dsh-llm-mode). Every id goes to AI Server 2; AI Server 1 serves no LLM since 2026-10-12 (no fallback).
+# Since 2026-11-13 the default is qwen3.8-27b-as1 = Qwen3.8 27B on AI Server 1 (2x3090, llama.cpp :1241, 262k, vision);
+# with it `dsh` does NOT turn on AI Server 2's LLM mode. flash-next (AI Server 2 Flash-Next, 262k) stays available:
+# pick it with --model / the UI model menu, or set DSH_LLM_MODE=1 to warm AI Server 2 first (bin/dsh-llm-mode).
 - id: llm-pi-ai
   config:
     providers:
       tai-ai-server:
         api: openai-completions
         baseURL: http://127.0.0.1:1235/v1
-        defaultInput: [text, image]   # Flash-Next has vision (mmproj on AS2 gufo, 2026-10-13)
+        defaultInput: [text, image]   # Flash-Next has vision since 2026-10-13 (mmproj on AS2 gufo)
         headers:              # keyless local proxy (it holds the real server keys); pi-ai needs some Authorization
           Authorization: Bearer local-proxy
         models:
+          - id: qwen3.8-27b-as1
           - id: flash-next
           - id: qwen3.8-flash-next-uncensored-strix
           # older ids still resolve (the proxy sends every id to AI Server 2's Flash-Next)
@@ -19,4 +21,4 @@
 - id: agent-default-model
   config:
     provider: tai-ai-server
-    model: flash-next
+    model: qwen3.8-27b-as1

@@ -1,5 +1,10 @@
 # DeepSeek Harness setup
 
+> **Default backend since 2026-11-13: Qwen3.8 27B on AI Server 1** (`qwen3.8-27b-as1`, 2x3090, llama.cpp, 262k,
+> vision; [docs/24](24-as1-no-llm.md#override-in-place-qwen38-27b-for-dsh-2026-11-13)). With it, `dsh` does not touch AI
+> Server 2 (no LLM mode). `flash-next` on AI Server 2 is still there as a non-default model. See
+> [AI Server 1 is the default (2026-11-13)](#ai-server-1-is-the-default-2026-11-13). The note below is the 10-12..11-13 state.
+>
 > **Default backend: AI Server 2 (2026-10-12).** `dsh` uses the model `flash-next`, served by **AI Server 2's
 > Flash-Next** (Strix Halo, gufo, 262k, MTP). Typing `dsh` in a terminal turns on AI Server 2's **LLM mode**: its
 > Clash jobs are moved off, the model loads, and the session runs on it. The box unloads after 30 min idle.
@@ -410,7 +415,30 @@ this GPU host.
 For multi-GPU tuning background, see the [llama.cpp multi-GPU guide](https://github.com/ggml-org/llama.cpp/blob/master/docs/multi-gpu.md)
 and [dual-3090 Qwen reports](https://www.reddit.com/r/LocalLLM/comments/1voyohk/qwen3827b_single_vs_multigpu_benchmarks/).
 
+## AI Server 1 is the default (2026-11-13)
+
+User, 2026-11-13: *"can we load qwen 3.8 27b on it and then run dsh on it. that way ai server 2 is free"*.
+
+| model id (dsh / proxy) | goes to | notes |
+|---|---|---|
+| `qwen3.8-27b-as1` (**default**), `qwen3.8-27b-strata`, `qwen3.8-27b-uncensored`, `qwen3.8-27b`, any id without "flash" | AI Server 1 `http://100.71.113.77:1241` (llama.cpp, Q4_K_M + vision, 262k, 2 slots) | the Mac proxy adds the key from `~/.config/ai-server-1/qwen27b_api_key`. If AS1 is down: 503 `ai_server_1_not_serving` with the restart command; never rerouted to AI Server 2 |
+| `flash-next`, `qwen3.8-flash-next-uncensored[-strix]` (any id with "flash") | AI Server 2 Flash-Next, exactly as below (LLM mode) | non-default; pick it in the web UI model menu or with the model setting |
+
+- `home/cordis.patch.yml`: `agent-default-model.model: qwen3.8-27b-as1`, the id added first in the `tai-ai-server`
+  provider list (`defaultInput: [text, image]` holds for both: the 27B has an mmproj).
+- `bin/dsh`: the terminal hook (`bin/dsh-llm-mode on` + 5-min touches) now runs only when the default model in
+  `cordis.patch.yml` contains "flash", when `--model`/`-m` names a flash id, or with `DSH_LLM_MODE=1`. With the AS1
+  default, typing `dsh` starts straight away and AI Server 2 stays free. `DSH_NO_LLM_MODE=1` still forces it off.
+- `bin/dsh-mac-proxy.mjs` (LaunchAgent `com.tai.dsh-mac-proxy`, restart: `launchctl kickstart -k gui/$(id -u)/com.tai.dsh-mac-proxy`):
+  routes as in the table; `/health` reports `as1_qwen27b` and `ais2_llm`. Source copies:
+  [`scripts/dsh-mac-proxy.mjs`](../scripts/dsh-mac-proxy.mjs), [`scripts/dsh/`](../scripts/dsh/).
+- Backups of the three files before the change: `*.bak-20261113-as1q27` beside them.
+- Back to AI Server 2 as default: set `model: flash-next` in `cordis.patch.yml` (the hook then runs again by itself).
+- The TPC client (`dsh-proxy.mjs`) was not changed: it still sends every id to AI Server 2.
+
 ## AI Server 2 is the default backend (LLM mode)
+
+> Was the default 2026-10-12..11-13; now the `flash-next` (non-default) path.
 
 Since 2026-10-12, `flash-next` on AI Server 2 is the default for every dsh client (Mac, TPC, any new install: see
 [docs/21](21-dsh-install.md)). Since 2026-10-12 AI Server 1 serves no LLM at all ([docs/24](24-as1-no-llm.md)): no fallback.

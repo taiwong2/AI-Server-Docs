@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 // dsh-mac-proxy.mjs: the DSH model proxy on 127.0.0.1:1235 (OpenAI-compatible). Source: AI-Server-Docs scripts/.
 //
-// Since 2026-10-12 every model id goes to Flash-Next on AI Server 2 (Strix Halo, gufo, 262k context). AI Server 1
-// (2x RTX 3090) is GPU training only and serves NO LLM: there is no AI Server 1 fallback any more.
-//   flash-next (default), qwen3.8-flash-next-uncensored[-strix|-1m], and any other id -> AI Server 2.
+// Since 2026-11-13 (user: "load qwen 3.8 27b on it and then run dsh on it. that way ai server 2 is free") the DEFAULT
+// is Qwen3.8 27B on AI Server 1 (2x RTX 3090, llama.cpp, 262k, vision; AI-Server-Docs docs/24 "Qwen3.8 27B for dsh"):
+//   qwen3.8-27b-as1 (default), qwen3.8-27b-strata, qwen3.8-27b-uncensored, qwen3.8-27b, and any id not listed below
+//     -> AI Server 1 http://100.71.113.77:1241 (key ~/.config/ai-server-1/qwen27b_api_key). Down -> clear 503, never AS2.
+//   flash-next, qwen3.8-flash-next-uncensored[-strix|-1m] (any id containing "flash") -> AI Server 2 Flash-Next (non-default).
+// (2026-10-12..11-13 every id went to AI Server 2 and AI Server 1 served no LLM.)
 // When AI Server 2's model is not up:
 //   - asleep: wake it (wake-ai-server-2, bounded), then continue;
 //   - a dsh terminal session is live (marker ~/.config/ai-server-2/llm-mode.json < 10 min, written by bin/dsh-llm-mode)
@@ -27,6 +30,10 @@ const HOME = os.homedir();
 const STATE = path.join(HOME, '.config/ai-server-2/dsh-proxy-state.json');
 const LOG = path.join(HOME, 'Library/Logs/dsh-mac-proxy.log');
 
+const AS1 = process.env.AS1_QWEN27B_URL || 'http://100.71.113.77:1241';
+const AS1_ID = 'qwen3.8-27b-as1';
+const AS1_MODEL = 'qwen3.8-27b-uncensored';
+const isAis2Id = (id) => /flash/i.test(id);
 const MAIN_ID = 'flash-next';
 const STRIX_ID = 'qwen3.8-flash-next-uncensored-strix';
 const AIS2_MODEL = 'qwen3.8-flash-next-uncensored';
@@ -147,8 +154,14 @@ async function forward(req, res, base, key, body) {
   res.end();
 }
 
+async function as1Up() {
+  try { const r = await fetch(`${AS1}/health`, { signal: AbortSignal.timeout(3000) }); return r.ok; } catch { return false; }
+}
+
 async function listModels() {
   return { object: 'list', data: [
+    { id: AS1_ID, object: 'model', owned_by: 'ai-server-1', description: 'Qwen3.8 27B uncensored Q4_K_M on AI Server 1 (2x3090, llama.cpp), default', context_length: 262144 },
+    { id: 'qwen3.8-27b-strata', object: 'model', owned_by: 'ai-server-1', description: 'same as qwen3.8-27b-as1', context_length: 262144 },
     { id: MAIN_ID, object: 'model', owned_by: 'ai-server-2', description: 'Qwen3.8-Flash-Next uncensored on AI Server 2 (gufo)', context_length: 262144 },
     { id: STRIX_ID, object: 'model', owned_by: 'ai-server-2', description: 'same as flash-next', context_length: 262144 },
   ] };
@@ -157,11 +170,20 @@ async function listModels() {
 http.createServer(async (req, res) => {
   try {
     if (req.method === 'GET' && (req.url === '/v1/models' || req.url === '/models')) return send(res, 200, await listModels());
-    if (req.method === 'GET' && req.url === '/health') return send(res, 200, { status: 'ok', ais2_llm: await ais2LlmUp() });
+    if (req.method === 'GET' && req.url === '/health') return send(res, 200, { status: 'ok', as1_qwen27b: await as1Up(), ais2_llm: await ais2LlmUp() });
     if (req.method !== 'POST') return send(res, 404, { error: { message: 'not found' } });
     let raw = ''; for await (const c of req) raw += c;
     const body = raw ? JSON.parse(raw) : {};
-    const want = String(body.model || MAIN_ID);
+    const want = String(body.model || AS1_ID);
+    if (!isAis2Id(want)) {
+      if (!(await as1Up())) {
+        const msg = 'Qwen3.8 27B on AI Server 1 (:1241) is not up. On AI Server 1: powershell -ExecutionPolicy Bypass -File C:\\AI-Server\\scripts\\as1-qwen27b.ps1 -Action Start (or -Action Status). Or pick model flash-next for AI Server 2';
+        log(`503 ${want}: AS1 down`);
+        return send(res, 503, { error: { message: msg, type: 'model_proxy_error', code: 'ai_server_1_not_serving' } });
+      }
+      log(`-> as1 ${want}`);
+      return await forward(req, res, AS1, readKey('.config/ai-server-1/qwen27b_api_key'), { ...body, model: AS1_MODEL });
+    }
     const bad = await ensureAis2();
     if (bad) { log(`503 ${want}: ${bad.slice(0, 100)}`); return send(res, 503, { error: { message: bad, type: 'model_proxy_error', code: 'ai_server_2_not_serving' } }); }
     lastAis2Use = Date.now();

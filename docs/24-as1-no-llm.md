@@ -1,5 +1,9 @@
 # AI Server 1 serves no LLM: the relay to AI Server 2 (2026-10-12)
 
+> **Override active since 2026-11-13:** the user asked for Qwen3.8 27B on AI Server 1 for dsh. It runs on both
+> 3090s at `100.71.113.77:1241` (llama.cpp, task `\AI-Qwen27B`); see [the section at the end](#override-in-place-qwen38-27b-for-dsh-2026-11-13).
+> Everything else below (no LM Studio, relay to AI Server 2 for the other consumers) is unchanged.
+
 **The rule.** User decision, 2026-10-12: *"boot off antoines lm studio model and also migrate everything over to ai
 server 2. so no llm stuff should run there unless specified."* AI Server 1 (2x RTX 3090) does **GPU training only**.
 No LM Studio, llama.cpp host, Ollama, model proxy or Flash-Next bench runs on it unless the user explicitly asks.
@@ -78,3 +82,61 @@ Verified 2026-10-12: from inside pp-antoine as `antoine`, `127.0.0.1:1234` and `
 a streamed reply), while `127.0.0.1:1240`, `:8001` (Gmail MCP) and AI Server 2 `:8080` stayed blocked; no key in
 his environment. A 2 MB prompt got `context_length_exceeded` in 0.0 s; the 4th identical prompt got 429; `qwen-agent`
 answered through :1240; `llama-host.ps1 -Action Start` printed REFUSED.
+
+## Override in place: Qwen3.8 27B for dsh (2026-11-13)
+
+**Why.** User, 2026-11-13 ~19:35 CST: *"can we load qwen 3.8 27b on it and then run dsh on it. that way ai server 2
+is free"* (and "dont use ollama use strata"). Strata (github.com/Niko1221/Strata, v0.2.13) only runs Qwen3.8-Flash-Next,
+Qwen3.6-35B-A3B and DeepSeek V4.1 (`include/strata/artifact/model_family.hpp`); it cannot load the dense 27B. The
+user then chose **llama.cpp** (option C). No LM Studio, Ollama, model proxy or `llama-host.ps1` is involved; `lms.exe`
+stays renamed.
+
+| | |
+|---|---|
+| Override | `C:\AI-Server\state\as1-llm.allowed` ("user 2026-11-13: Qwen3.8 27B via llama.cpp ... to free AS2") |
+| Weights | `C:\AI-Server\models\gguf\orcarouter\Qwen3.8-27B-Uncensored-GGUF\orcarouter_Qwen3.8-27B-Uncensored-Q4_K_M.gguf` (17.8 GB, abliterated, MTP head) + `mmproj-orcarouter_Qwen3.8-27B-Uncensored-f16.gguf` (0.93 GB, vision), from `bartowski/orcarouter_Qwen3.8-27B-Uncensored-GGUF`: the same abliterated orcarouter weights (and file names) AS1 served as `qwen3.8-27b-uncensored` before 10-12 (then Q6_K). The old files were gone; `orcarouter/...` itself is now gated on HF, bartowski's mirror is open. (A first download of `JonathanColetti/Qwen3.8-27B-Uncensored-GGUF`, a different uncensored tune, was deleted on the user's word: it must be the abliterated orcarouter model.) Q4_K_M, not Q6_K: C: had 29 GB free after purging the pip/npm/uv caches, and Q6_K + mmproj (24.4 GB) would have left < 8 GB |
+| Engine | `C:\AI-Server\tools\llama-inovello\build\bin\llama-server.exe` (mainline-based build, 0.3.0-dev dd64a3d) |
+| Supervisor | `C:\AI-Server\scripts\as1-qwen27b.ps1 -Action Run` (source [`scripts/as1-qwen27b/`](../scripts/as1-qwen27b/)): takes a GPU lease on each card (`qwen27b-dsh`, 21,000 MB, bound to its PID), starts llama-server, restarts it if it exits, releases the leases on exit. Exits when `state\qwen27b\stop` appears or the override file is removed |
+| Task | `\AI-Qwen27B` (poopl, S4U, at startup, restart every 1 min on failure, no time limit). Download task `\AI-Qwen27B-Download` (one-shot, `scripts\qwen27b-download.ps1`, log `logs\qwen27b-download.log`) |
+| Endpoint | `http://100.71.113.77:1241/v1` (tailnet only: firewall rule `AI-Qwen27B 1241 (tailnet)`, remote 100.64.0.0/10; not on the sharee list, so Antoine cannot reach it). Bearer key in `state\qwen27b\api_key` (Mac copy `~/.config/ai-server-1/qwen27b_api_key`); `/health` is open |
+| Model ids | `qwen3.8-27b-uncensored`, `qwen3.8-27b-as1`, `qwen3.8-27b-strata` (all the same model) |
+| Settings | ctx 262,144, `--parallel 2 --kv-unified` (two sessions share one 262k pool), KV q8_0, `--split-mode tensor --tensor-split 1,1`, flash-attn, MTP speculation (`--spec-type draft-mtp --spec-draft-n-max 2`), `--cache-ram 8192` (prompt cache in host RAM), `--jinja`, vision. VRAM: ~16.3 / 15.5 GB of 24 GB |
+| Logs | `logs\qwen27b\supervisor.log`, `server.err.log` (llama.cpp log with per-request timings) |
+
+### Benchmarks (2026-11-13 ~20:40 CST, clash-sim CPU jobs running beside it)
+
+Measured from the Mac straight to :1241 (`max_tokens` 256, thinking off, temperature 0.6), llama.cpp timings:
+
+| case | prompt | prefill | decode | wall | note |
+|---|---:|---:|---:|---:|---|
+| 1 session, cold | 20,048 tok | 1,005 tok/s | 29.6 tok/s | 30.3 s | MTP accepts ~53% of drafts |
+| same 20k prefix, new question | 514 new (19,532 cached) | | 25.9 tok/s | 12.3 s | prompt cache reuse works |
+| 1 session, cold | 99,952 tok | 828 tok/s | 24.8 tok/s | 133.9 s | |
+| same 100k prefix, new question | 514 new (99,436 cached) | | 23.1 tok/s | 16.2 s | |
+| 2 sessions at once, 20k each, cold | 2 x 20k | ~810 tok/s each | 22.1 / 9.2 tok/s* | 57.6 s total | *decode overlapped the other session's prefill |
+| 2 sessions at once, short prompt | 35 tok | | 26.4 + 25.2 tok/s (~52 total) | 17.4 s | vs 29.2 tok/s for one session |
+
+dsh end to end: `bin/dsh-check` OK in 12 s; a headless task (read a buggy file, fix it, write a pytest test, run it)
+finished in 36 s with 3 tool rounds, all routed `-> as1`, and AI Server 2's LLM mode stayed off. Uncensored check: lock-picking
+steps and a profane roast answered with no refusal.
+
+### Stop / undo
+
+```
+powershell -ExecutionPolicy Bypass -File C:\AI-Server\scripts\as1-qwen27b.ps1 -Action Stop     # stops server + supervisor, releases leases
+Disable-ScheduledTask AI-Qwen27B                                       # keep it off across reboots
+powershell -ExecutionPolicy Bypass -File C:\AI-Server\scripts\as1-qwen27b.ps1 -Action Status   # health, pids, leases
+powershell -ExecutionPolicy Bypass -File C:\AI-Server\scripts\as1-qwen27b.ps1 -Action Start    # clear the stop flag, enable + start the task
+```
+
+Note: Stop leaves `state\qwen27b\stop`, and `-Action Run` (boot trigger, restart-on-failure) exits at once while it
+exists, so a stop holds until `-Action Start` (which removes it).
+
+Full undo (back to "AS1 serves no LLM"): Stop, `Unregister-ScheduledTask AI-Qwen27B`, delete
+`state\as1-llm.allowed` (the supervisor also exits by itself when that file disappears), remove the firewall rule,
+optionally delete `C:\AI-Server\models\gguf\orcarouter` (18.7 GB). Then on the Mac set dsh's default back to
+`flash-next` (docs/10).
+
+**Training has priority.** The leases hold both cards (the training backlog, docs/26, only launches on AS1 cards with
+< 1.5 GB used). When a GPU training run needs AI Server 1, run `-Action Stop` (dsh then answers a clear 503 for the
+AS1 ids; pick `flash-next` for AI Server 2) and start the task again afterwards.
