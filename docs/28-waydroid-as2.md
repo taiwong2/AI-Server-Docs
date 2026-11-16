@@ -162,3 +162,24 @@ LXC could not bind-mount `/dev/binder` and the 666 chmod hit a missing path. cfg
 (backups `~/waydroid-coach/*.bak-binder1113`). After changing either, `sudo systemctl restart waydroid-container`
 (it prepares/chmods the drivers once per service start). A stale "Session RUNNING / Container STOPPED" needs
 `wd.sh stop; sudo waydroid session stop` before `coc up` (wd-session stays active otherwise).
+
+## 2026-11-16: updated to CoC 19.32.4 (13:45-13:56 CST)
+
+- Found: Waydroid session + container **running** (not stopped), Clash 18.647.5 (versionCode 180647006) in the
+  background, launcher on top; ClashLLM daemon active but PAUSEd by the user since 11-14 23:50.
+- APK: APKMirror `com.supercell.clashofclans_19.32.4-190032005_minAPI24(arm64-v8a,armeabi-v7a,x86_64)(nodpi)`, a plain
+  APK (not split/.apkm) with arm64-v8a, armeabi-v7a and x86_64 libs, sha256 `99b5441d…d210bb0`. On AS2:
+  `~/apks/coc_19.32.4.apk`.
+- Backup before install: `~/apks/backup_18.647.5/` (tar of `/data/data/com.supercell.clashofclans` from
+  `~/.local/share/waydroid/data/data`, plus `dumpsys package` and `pm path`).
+- Install: `adb -s 192.168.240.112:5555 install -r ~/apks/coc_19.32.4.apk` (streamed, ~13 s, in place; firstInstallTime
+  stays 11-12). Result: versionName **19.32.4**, versionCode **190032005**, primaryCpuAbi **x86_64** (no native bridge),
+  targetSdk 36.
+- Launch: `monkey` fails (exit -5); use `am start -n com.supercell.clashofclans/com.supercell.titan.GameApp`.
+  It shows the age gate, ToS notice, Usercentrics privacy dialog, then loads to a village. **No protector/Quago error.**
+  Screenshots: Mac `~/Documents/ClashRuns/waydroid-coach/v19324_*.png` (`v19324_t_loaded.png` = village).
+- Account: the village that loaded is a **fresh tutorial account (TH1, "Welcome Chief")**, not Grimwick47. This was
+  not caused by the update: the pre-update backup already shows the app's prefs recreated at 08:36 CST today
+  (`storage.xml` 402 bytes, Supercell ID plugin activity 09:22-09:28), i.e. the data had been cleared/reset before the
+  update. To get Grimwick47 back: Settings -> Supercell ID (if it was linked), done by the user.
+- Left: session/container running (as found), game in background, launcher on top, device lease released.
