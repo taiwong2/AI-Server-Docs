@@ -4,6 +4,19 @@ AI Server 2 (Minisforum MS-S1 MAX: Ryzen AI Max+ 395, Radeon 8060S `gfx1151`, 12
 [docs/15](15-ai-server-2-battle-box.md)) can serve the uncensored **Qwen3.8-Flash-Next** on **gufo**, the
 Strix-Halo-only HIP engine. It is set up, verified, benchmarked, and **switched off** at the moment.
 
+> **2026-11-18: engine switched to halogen; gufo removed.** The user asked for the fastest engine plus 1M context
+> and kept the uncensored model. The box now runs **halogen-flash-server 0.20.7** (`llm-halogen.service`, Quadlet
+> and mode files in ClashEngineering `ops/strixhalo/llm/`, install with its `install.sh`) on
+> **Quat3rnion/halogen-qwen3.8-flash-next-v2-abliterated r2** (`e7783c58`, sha256 `7bbac319...`, 88.7 GB; perplexity
+> 3.134 against stock v2's 3.144, refusals removed, the publisher's numbers) plus peonist's pinned n-gram table
+> (`5cc17cea`, 51.2 GB), tokenizer and vision tower. Same endpoint, key and model id
+> (`qwen3.8-flash-next-uncensored`, :8080). Context modes: `install.sh mode 256k` (default: 262,144 per
+> request, 2 conversations) or `install.sh mode 1m` (YaRN x4, 1,048,576, needs the whole box). gufo, its GGUF, its MTP
+> head and its images were deleted (Quadlet kept in `/srv/llm/removed-gufo-20261118/`). Weights:
+> `/srv/llm/fetch-halogen.sh` (resumable, sha256-verified; marker `.verified-halogen-v2-abliterated-r2`).
+> The sections below describe the gufo era. Re-test (speed, needles at 256k and 1M, refusals) runs when the Clash
+> queue drains.
+
 > **Status (2026-10-12): on demand through LLM mode; the default dsh backend.** Typing `dsh` on a client runs
 > `llm-mode on` here: the Clash jobs move off (or are frozen or parked) by lane policy, then the model loads and is
 > verified. `llm-mode off` (or the 30 min idle watcher) unloads it and gives the box back to clashjobs. `llm.target`
