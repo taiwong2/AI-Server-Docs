@@ -54,6 +54,7 @@ attacker arms on its iGPU when the 3090s are taken (LLM mode still takes precede
 | Queue training / eval jobs that start by themselves when a GPU or CPU frees up (no agent needed) | [Training backlog](docs/26-training-backlog.md) |
 | Make sure every GPU is training and the main run never stops (finished / stuck -> resume, idle GPU -> next job) | [Train guard](docs/27-train-guard.md) |
 | Run the official Clash client headless on AI Server 2 (Waydroid) for coaching / remote play; start, stop, remove | [Waydroid on AS2](docs/28-waydroid-as2.md) |
+| Get a password/token for an agent from the user's Bitwarden vault (headless `bw` on AI Server 1); add a new credential | [Bitwarden vault](docs/29-bitwarden.md) |
 | What `dsh` does (AI Server 2 default backend, LLM mode, idle unload), routing, troubleshooting | [DeepSeek Harness setup](docs/10-dsh-setup.md) |
 | Write a story, poem or lyrics with Gemma 4 | [Creative writing](docs/11-creative-writing.md) |
 | Use the Flash-Next LLM on AI Server 2 (Strix Halo, gufo; the dsh default), or turn it on/off (`llm-mode`) | [AI Server 2 (Strix Halo) LLM](docs/17-ai-server-2-llm.md) |
