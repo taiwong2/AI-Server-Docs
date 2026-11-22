@@ -421,7 +421,7 @@ User, 2026-11-13: *"can we load qwen 3.8 27b on it and then run dsh on it. that 
 
 | model id (dsh / proxy) | goes to | notes |
 |---|---|---|
-| `qwen3.8-27b-as1` (**default**), `qwen3.8-27b-strata`, `qwen3.8-27b-uncensored`, `qwen3.8-27b`, any id without "flash" | AI Server 1 `http://100.71.113.77:1241` (llama.cpp, Q4_K_M + vision, 262k, 2 slots) | the Mac proxy adds the key from `~/.config/ai-server-1/qwen27b_api_key`. If AS1 is down: 503 `ai_server_1_not_serving` with the restart command; never rerouted to AI Server 2 |
+| `qwen3.8-27b-as1` (**default**), `qwen3.8-27b-strata`, `qwen3.8-27b-uncensored`, `qwen3.8-27b`, any id without "flash" | AI Server 1 `http://100.71.113.77:1241` (llama.cpp, Q4_K_M + vision, 262k, 2 slots; **GONE since the 2026-11-22 Linux reinstall, the new endpoint is Strata at `http://100.70.25.10:8080`, Orca Qwen3.8-Flash-Next-Uncensored IQ3_XXS, 262k, vision, same key; the proxy is not rewired yet, see docs/24-as1-no-llm.md**) | the Mac proxy adds the key from `~/.config/ai-server-1/qwen27b_api_key`. If AS1 is down: 503 `ai_server_1_not_serving` with the restart command; never rerouted to AI Server 2 |
 | `flash-next`, `qwen3.8-flash-next-uncensored[-strix]` (any id with "flash") | AI Server 2 Flash-Next, exactly as below (LLM mode) | non-default; pick it in the web UI model menu or with the model setting |
 
 - `home/cordis.patch.yml`: `agent-default-model.model: qwen3.8-27b-as1`, the id added first in the `tai-ai-server`

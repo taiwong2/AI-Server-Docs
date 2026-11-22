@@ -140,3 +140,32 @@ optionally delete `C:\AI-Server\models\gguf\orcarouter` (18.7 GB). Then on the M
 **Training has priority.** The leases hold both cards (the training backlog, docs/26, only launches on AS1 cards with
 < 1.5 GB used). When a GPU training run needs AI Server 1, run `-Action Stop` (dsh then answers a clear 503 for the
 AS1 ids; pick `flash-next` for AI Server 2) and start the task again afterwards.
+
+## AS1 Linux: Strata (2026-11-22)
+
+AS1 was reinstalled with Ubuntu 26.04 on 2026-11-22; the old Windows llama.cpp endpoint (`100.71.113.77:1241`) no longer exists.
+AS1 now serves one LLM again, through Strata's own engine (https://github.com/Niko1221/Strata, v0.2.19, terminal build 0.1.65).
+
+| | |
+| --- | --- |
+| Endpoint | `http://100.70.25.10:8080` (tailnet only: the server binds the Tailscale address, nothing on the LAN). OpenAI `/v1/chat/completions`, Anthropic `/v1/messages`, `/v1/models`, `/health`, web UI at `/` |
+| Auth | API key required (Bearer or `x-api-key`). Same key as the Mac file `~/.config/ai-server-1/qwen27b_api_key`; on AS1 it is in `~/.config/strata/env` (mode 600, `STRATA_API_KEY=`) |
+| Model | OrcaRouter Qwen3.8-Flash-Next-Uncensored, IQ3_XXS (`orcarouter/Qwen3.8-Flash-Next-Uncensored-GGUF`, gated: accepted on HF account vusto; token `~/.cache/huggingface/token` on AS1). Model id: `orcarouter-qwen3.8-flash-next-uncensored-iq3_xxs` |
+| Why this quant | Strata validates only IQ3_XXS for the Orca model (IQ3_M's Q5_0 expert down matrices are unsupported); expert arena 49.8 GiB RAM of 89 GB |
+| Context | 262144 tokens (docs show 32K; 256K starts fine with `--kv int8`) |
+| Vision | on (mmproj F16, CPU reader) |
+| Drafting | MTP draft head from the original Qwen3.8-Flash-Next (`mtp_fetch/mtp_pack/mtp_rt`, q2_0 experts); acceptance not measured for this fine-tune |
+| GPUs | both 3090s, layer split; 23.2 GiB used on each card; RAM about 59 GB used |
+| Files | `~/orca/` : `models/` (GGUF shards, mmproj, MTP), `packs/orca-iq3_xxs` (`iq_pack.py --compat-bf16`, rounds 363 small tensors to BF16), `mtp/rt`, `strata-orca.json` (server config), `src/` (Strata v0.2.19 checkout + venv). Engine binary: released `strata` 0.1.65 CUDA 13 under `~/.local/share/strata/components` (no source build needed) |
+| Service | `strata.service` (enabled, `Restart=on-failure`, 30 s). ExecStart = `ClashEngineering/ops/aiserver/as1-linux/gpurun.sh --gpu 0,1 --wait-min 0 -- ~/.local/bin/strata-service-run.sh`, so the service holds the flock leases of both cards: training jobs cannot land on them, and `systemctl stop` releases them. Cold start about 2 min (experts to RAM) |
+
+Commands (on AS1):
+`sudo systemctl stop strata` (frees both cards) / `start` / `restart`, `journalctl -u strata -f`,
+`gpurun.sh --status`, monitor: `set -a; . ~/.config/strata/env; set +a; strata status --url http://100.70.25.10:8080 --credential-env STRATA_API_KEY` (views 1-6, `q` quits).
+
+Benchmarks (Mac to AS1 over Tailscale, 2026-11-22 ~16:30 CST): 23,170-token prompt: 16.0 s to first token, about 1,440 tok/s prefill;
+decode about 148 tok/s on a 400-token story (MTP on); short prompt first token 0.4 s; image (red square, blue circle) described correctly in 2.1 s;
+Anthropic `/v1/messages` and key rejection (401 without key) verified. The model thinks by default (`reasoning_content`).
+
+Notes: a `strata launch` run (family menu models) is not used; Orca is not in the menu (docs/ORCA.md). A single-stream download from Hugging Face is capped near 2 MB/s,
+parallel range requests (`~/orca/models/pdl.py`) reach 50+ MB/s. The key was printed once in an agent transcript by mistake (CLI argument error); rotate it if that matters.
