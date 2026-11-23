@@ -1,7 +1,7 @@
 # 30. Paseo on AI Server 1 (agent orchestration + iPhone app)
 
 Set up 2026-11-22. Paseo (https://paseo.sh, github.com/getpaseo/paseo) is a daemon that runs coding agents
-(OpenCode, Claude Code, Codex) and lets you drive them from the Paseo iPhone app, a browser, or the `paseo` CLI.
+(OpenCode on Strata, Claude Code, Codex, Antigravity) and lets you drive them from the Paseo iPhone app, a browser, or the `paseo` CLI.
 Agents launched by Paseo get Paseo's own tools (`paseo_create_agent`, `paseo_send_agent_prompt`,
 `paseo_get_agent_status`, `paseo_get_agent_activity`, ...) so one agent can start and talk to others.
 The local agent is OpenCode on Strata (the AS1 LLM, see the Strata doc).
@@ -14,9 +14,14 @@ The local agent is OpenCode on Strata (the AS1 LLM, see the Strata doc).
 | npm global prefix | | `~/.local/npm-global` (bins in `~/.local/npm-global/bin`) |
 | Paseo CLI + daemon | `@getpaseo/cli` 0.17.3 | systemd **user** unit `paseo.service` |
 | OpenCode | `opencode-ai` 1.19.6 | launched by Paseo as `opencode serve --port <random>` |
-| Claude Code | `@anthropic-ai/claude-code` 2.1.330 | provider, needs one-time login |
-| Codex CLI | `@openai/codex` 0.171.0 | provider, needs one-time login |
+| Claude Code | `@anthropic-ai/claude-code` 2.1.330 | provider, logged in 2026-11-22 (`claude auth login`) |
+| Codex CLI | `@openai/codex` 0.171.0 | provider, logged in 2026-11-22 (ChatGPT login copied from the wake relay, see below) |
+| Antigravity CLI (`agy`) | 1.5.14 (Google's installer, not npm) | `~/.local/bin/agy`, provider `antigravity`, Google login 2026-11-22 |
+| Gemini CLI | `@google/gemini-cli` 0.70.0 | installed but NOT a provider (Google ended its personal sign-in, see below) |
 | gh | 2.46.0 (apt) | not logged in (only needed for PR-aware worktrees) |
+
+Providers as of 2026-11-22 20:20 CST (`paseo provider ls`): claude, codex, opencode, antigravity all `available`;
+copilot, pi, muse etc. are Paseo's built-in defaults (not installed, ignore them).
 
 The PATH line at the top of `~/.bashrc` (marked `paseo-as1`) adds node and the npm globals, also for
 non-interactive `ssh ai-server-1 <cmd>`. Backup of the previous file: `~/.bashrc.bak-paseo`.
@@ -48,6 +53,7 @@ and a second, unmanaged supervisor would fight it.
 ```
 npm i -g --allow-scripts=@anthropic-ai/claude-code,opencode-ai,esbuild,node-pty,msgpackr-extract \
   @getpaseo/cli@<ver> opencode-ai@<ver> @anthropic-ai/claude-code@<ver> @openai/codex@<ver>
+curl -fsSL https://antigravity.google/cli/install.sh | bash      # agy (Paseo needs >= 1.5.0)
 systemctl --user restart paseo
 ```
 
@@ -78,7 +84,11 @@ Pin exact versions (check `npm view <pkg> version`). OpenCode has `"autoupdate":
   "features": { "webUi": { "enabled": true } },
   "agents": {
     "idleRuntimeCleanup": true,
-    "providers": { "opencode": { "paseoTools": { "enabled": true } } }
+    "providers": {
+      "opencode":    { "paseoTools": { "enabled": true } },
+      "codex":       { "enabled": true, "paseoTools": { "enabled": true } },
+      "antigravity": { "env": { "SSH_CONNECTION": "paseo" }, "paseoTools": { "enabled": true } }
+    }
   },
   "log": { "...": "console info, file ~/.paseo/daemon.log info, rotate 10m x 3" }
 }
@@ -129,12 +139,36 @@ then `systemctl --user restart paseo`, and enter it in the app.
 
 ## One-time logins for the other providers
 
+All done on 2026-11-22. To redo one:
+
 ```
 ssh -t ai-server-1 claude auth login        # Claude subscription; opens a URL, paste the code back
 ssh -t ai-server-1 codex login --device-auth
+ssh -t ai-server-1 'SSH_CONNECTION=1 ~/.local/bin/agy'   # Antigravity: choose Google OAuth, paste the code, then /logout to switch accounts
 ```
 
-Then `paseo provider diagnostic claude` / `codex`. gh only if PR-aware worktrees are wanted: `ssh -t ai-server-1 gh auth login`.
+Then `paseo provider diagnostic claude` / `codex` / `antigravity`. gh only if PR-aware worktrees are wanted:
+`ssh -t ai-server-1 gh auth login`.
+
+Without a terminal (as on 11-22), run the login inside tmux on AS1 and read the URL with `tmux capture-pane -p -J`;
+paste the browser's code back with `tmux send-keys`. Google codes expire quickly (Gemini CLI waited 5 min).
+
+**Codex:** the 11-22 login was not made on AS1: `~/.codex/auth.json` was copied from the wake relay Mac mini
+(`root@100.127.179.9`, user `yichunyan`, the user's own ChatGPT login; user OK 11-22), mode 0600. `codex login status`
+says "Logged in using ChatGPT". If it expires, run the device login above instead.
+
+**Antigravity:** installed with `curl -fsSL https://antigravity.google/cli/install.sh | bash` (binary only, no
+sudo; update the same way). The daemon has no desktop keyring, so agy uses its SSH-mode token file
+`~/.gemini/antigravity-cli/antigravity-oauth-token` (0600): the login above runs with `SSH_CONNECTION=1`, and the
+Paseo provider sets `"env": {"SSH_CONNECTION": "paseo"}` so the daemon reads the same file. Models via the
+Google account (`SSH_CONNECTION=1 agy models`): gemini-3.8-flash high/medium/low, claude-sonnet-4-6,
+claude-opus-4-6-thinking, gpt-oss-120b-medium. Smoke test 11-22: `paseo run --provider
+antigravity/gemini-3.8-flash-low "Reply with exactly: pong"` -> pong.
+
+**Gemini CLI: not usable with a Google login.** On 11-22 the Google sign-in was refused by Google: "This client is
+no longer supported for Gemini Code Assist for individuals. ... migrate to the Antigravity suite". The `gemini`
+provider was removed from the Paseo config. The CLI would still work with a Gemini API key; one was pasted on 11-22
+and sits in `~/.gemini/.env` (0600) unused. Gemini CLI also does not read that file from an untrusted folder.
 
 ## Orchestration test (2026-11-22)
 
