@@ -102,7 +102,7 @@ To limit what a provider's agents may do with Paseo tools, add per-provider
 
 `~/.config/opencode/opencode.json` defines provider `strata` with `@ai-sdk/openai-compatible`:
 
-- `baseURL`: `http://100.70.25.10:8080/v1` (Strata listens on the Tailscale IP only, not 127.0.0.1)
+- `baseURL`: `http://100.70.25.10:8080/v1` (`strata-proxy` on the Tailscale IP; Strata loads on demand, so the first prompt after 30 idle minutes waits about 22 s)
 - `apiKey`: `{file:~/.config/paseo-as1/strata.key}`
 - model `orcarouter-qwen3.8-flash-next-uncensored-iq3_xxs` (the id from `/v1/models`), `tool_call`, `attachment`,
   `reasoning` true, text+image input, `limit.context` 262144 (Strata serves 1M; kept lower for speed),
@@ -191,7 +191,7 @@ polled it to idle and read back `391`. Working, with caveats about the local mod
   `ss -ltn | grep 6767`, `journalctl --user -u paseo`).
 - OpenCode agent errors with 401: the key file changed; rewrite `~/.config/paseo-as1/strata.key` and `strata.env`
   from Strata's config, 0600.
-- Strata down: agents hang or error; this setup never restarts Strata (see its own doc).
+- Strata is loaded on demand by `strata-proxy` (docs/24, "On demand"): an agent prompt after an idle period waits ~22 s for the load. An error `strata_unavailable` (HTTP 503) means the GPUs are taken by a training job; `strata-mode status` on AS1 shows who holds them.
 - Config change ignored: `paseo reload`; if it says restart-required, `systemctl --user restart paseo`.
 - Remove everything: `systemctl --user disable --now paseo`, `rm ~/.config/systemd/user/paseo.service`,
   `npm rm -g @getpaseo/cli opencode-ai @anthropic-ai/claude-code @openai/codex`, `rm -rf ~/.paseo`,

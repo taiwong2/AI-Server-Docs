@@ -148,7 +148,7 @@ AS1 now serves one LLM again, through Strata's own engine (https://github.com/Ni
 
 | | |
 | --- | --- |
-| Endpoint | `http://100.70.25.10:8080` (tailnet only: the server binds the Tailscale address, nothing on the LAN). OpenAI `/v1/chat/completions`, Anthropic `/v1/messages`, `/v1/models`, `/health`, web UI at `/` |
+| Endpoint | `http://100.70.25.10:8080` (tailnet only; since 2026-11-22 23:42 CST this is `strata-proxy`, which loads Strata on demand, see below; Strata itself listens on `127.0.0.1:8081`). OpenAI `/v1/chat/completions`, Anthropic `/v1/messages`, `/v1/models`, `/health`, web UI at `/` |
 | Auth | API key required (Bearer or `x-api-key`). Same key as the Mac file `~/.config/ai-server-1/qwen27b_api_key`; on AS1 it is in `~/.config/strata/env` (mode 600, `STRATA_API_KEY=`) |
 | Model | OrcaRouter Qwen3.8-Flash-Next-Uncensored, IQ3_XXS (`orcarouter/Qwen3.8-Flash-Next-Uncensored-GGUF`, gated: accepted on HF account vusto; token `~/.cache/huggingface/token` on AS1). Model id: `orcarouter-qwen3.8-flash-next-uncensored-iq3_xxs` |
 | Why this quant | Strata validates only IQ3_XXS for the Orca model (IQ3_M's Q5_0 expert down matrices are unsupported); expert arena 49.8 GiB RAM of 89 GB |
@@ -157,11 +157,34 @@ AS1 now serves one LLM again, through Strata's own engine (https://github.com/Ni
 | Drafting | MTP draft head from the original Qwen3.8-Flash-Next (`mtp_fetch/mtp_pack/mtp_rt`, q2_0 experts); acceptance not measured for this fine-tune |
 | GPUs | both 3090s, layer split; 23.2 GiB used on each card; RAM about 59 GB used |
 | Files | `~/orca/` : `models/` (GGUF shards, mmproj, MTP), `packs/orca-iq3_xxs` (`iq_pack.py --compat-bf16`, rounds 363 small tensors to BF16), `mtp/rt`, `strata-orca.json` (server config), `src/` (Strata v0.2.19 checkout + venv). Engine binary: released `strata` 0.1.65 CUDA 13 under `~/.local/share/strata/components` (no source build needed) |
-| Service | `strata.service` (enabled, `Restart=on-failure`, 30 s). ExecStart = `ClashEngineering/ops/aiserver/as1-linux/gpurun.sh --gpu 0,1 --wait-min 0 -- ~/.local/bin/strata-service-run.sh`, so the service holds the flock leases of both cards: training jobs cannot land on them, and `systemctl stop` releases them. Cold start about 2 min (experts to RAM) |
+| Service | `strata.service` (static: NOT started at boot; `strata-proxy` starts it on a request). ExecStart = `ClashEngineering/ops/aiserver/as1-linux/gpurun.sh --gpu 0,1 --wait-min 0 -- ~/.local/bin/strata-service-run.sh` (`--host 127.0.0.1 --port 8081`), so while loaded it holds the flock leases of both cards; `Restart=on-failure` except exit 3 (cards leased). Load 21-22 s |
+
+### On demand (since 2026-11-22)
+
+Strata is loaded only while used, so both 3090s are free for training otherwise. Source and runbook: ClashEngineering
+`ops/aiserver/as1-linux/strata/` and `ops/aiserver/as1-linux/LINUX.md` ("Strata on demand").
+
+- `strata-proxy.service` (system unit, enabled) owns `100.70.25.10:8080` and pipes every connection byte for byte to
+  `127.0.0.1:8081` (streaming/SSE unchanged, no request timeout). Strata down: it runs `systemctl start strata`
+  (polkit rule `/etc/polkit-1/rules.d/50-strata-ondemand.rules`, poopl may start/stop that unit only), holds the
+  connection until Strata is healthy, then pipes it. The first request waits about 22 s; concurrent first requests share
+  one start. Clients need no change (OpenCode's 600 s timeout covers the load).
+- Idle unload: no open connection and no traffic for 30 min (`STRATA_IDLE_MIN` in the unit) -> `systemctl stop strata`,
+  gpurun's leases go with it. A running stream or a long prefill is an open connection and is never cut.
+- `GET /health` does not wake Strata: while it is down the proxy answers `{"status": "ok", "loaded": false, "ondemand": true}`.
+  It is also not counted as activity.
+- Start refused -> HTTP 503, JSON `{"type":"error","error":{"type":"service_unavailable","code":"strata_unavailable","message":...}}`,
+  `Retry-After: 60`: a card is leased by another `gpurun` job, or a card has > 2 GB used by a process without a lease.
+  The message names the holder. Nothing retries in the background; the next request tries again.
+- Load time 21-22 s warm or cold: Strata reads the 80 GB of shards at about 5.5 GiB/s past the page cache (they are
+  not resident in the page cache even while loaded; same time after `drop_caches`), so keeping the cache warm buys nothing.
 
 Commands (on AS1):
-`sudo systemctl stop strata` (frees both cards) / `start` / `restart`, `journalctl -u strata -f`,
-`gpurun.sh --status`, monitor: `set -a; . ~/.config/strata/env; set +a; strata status --url http://100.70.25.10:8080 --credential-env STRATA_API_KEY` (views 1-6, `q` quits).
+`strata-mode status` (state, open connections, last activity, unload time, hold, GPU leases),
+`strata-mode on [--hold 2h|forever]` (load now; a hold suspends the idle unload), `strata-mode off [--force]`,
+`strata-mode hold 3h|off`; logs `journalctl -u strata-proxy -f` (one line per request, starts/stops), `journalctl -u strata -f`;
+`gpurun.sh --status`. Monitor: `set -a; . ~/.config/strata/env; set +a; strata status --url http://100.70.25.10:8080 --credential-env STRATA_API_KEY`
+(views 1-6, `q` quits; it wakes Strata). Always-on for a session: `strata-mode on --hold forever`, undo with `strata-mode hold off`.
 
 Benchmarks (Mac to AS1 over Tailscale, 2026-11-22 ~16:30 CST): 23,170-token prompt: 16.0 s to first token, about 1,440 tok/s prefill;
 decode about 148 tok/s on a 400-token story (MTP on); short prompt first token 0.4 s; image (red square, blue circle) described correctly in 2.1 s;
