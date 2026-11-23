@@ -183,3 +183,41 @@ LXC could not bind-mount `/dev/binder` and the 666 chmod hit a missing path. cfg
   (`storage.xml` 402 bytes, Supercell ID plugin activity 09:22-09:28), i.e. the data had been cleared/reset before the
   update. To get Grimwick47 back: Settings -> Supercell ID (if it was linked), done by the user.
 - Left: session/container running (as found), game in background, launcher on top, device lease released.
+
+## Second instance (wd2, replay relay client; added 2026-11-22 CST)
+
+A second, isolated Waydroid container for the ClashReplays session relay, next to the fleet's. Controller:
+`ops/strixhalo/waydroid2/wd2.py` in ClashEngineering (server worktree `~/ce_replaywd`). **Off by default**; nothing of
+it runs unless started. It never uses the fleet's resources:
+
+| | fleet (untouched) | wd2 |
+|---|---|---|
+| LXC | `waydroid`, `/var/lib/waydroid/lxc` | `waydroid2`, `/var/lib/waydroid2/lxc` (cgroup `lxc.payload.waydroid2`) |
+| binder | `anbox-*` | `/dev/binderfs/wd2-{binder,vndbinder,hwbinder}` |
+| network | `waydroid0` 192.168.240.0/24 | `waydroid1` 192.168.241.0/24, own dnsmasq, iptables-legacy rules tagged `wd2` |
+| weston | `wayland-wd` (wd-weston) | `wayland-wd2` (transient user unit `wd2-weston`, 512 MB / 50% CPU) |
+| data | `~/.local/share/waydroid/data` | `~/.local/share/waydroid2/data` (fresh guest account, TH1 tutorial, no Supercell ID) |
+| images | `/var/lib/waydroid/images` | same files, own read-only `noload` loop mounts |
+
+Caps: cpu.max 3 cores, cpu.weight 20, memory.high 5G, memory.max 6G, no swap (peak seen 4.8 GiB with Clash loaded).
+Guard: transient root unit `wd2-guard` stops wd2 when MemAvailable < 28.5 GB (above wd-ramguard's 25 GB floor and
+far above as2-memguard's 2 GB shed point, so wd2 is always shed first; memguard's config is unchanged). `start`
+refuses below 33 GB.
+
+```
+cd ~/ce_replaywd
+sudo python3 ops/strixhalo/waydroid2/wd2.py start | stop | status
+sudo python3 ops/strixhalo/waydroid2/wd2.py sh "am start -n com.supercell.clashofclans/com.supercell.titan.GameApp"
+sudo python3 ops/strixhalo/waydroid2/wd2.py route-on | route-off   # DNAT tcp 9339 from waydroid1 only -> relay 127.0.0.1:19339
+sudo python3 ops/strixhalo/waydroid2/wd2.py remove                 # stop + delete the wd2 binder devices
+sudo rm -rf /var/lib/waydroid2 ~/.local/share/waydroid2            # then: delete instance + guest account
+```
+Screenshots: `wd2.py sh "screencap -p /data/local/tmp/s.png"`, then `sudo cat ~/.local/share/waydroid2/data/local/tmp/s.png`.
+Relay flow and the sudo sampler: ClashReplays/LINUX_RUNTIME.md. 2026-11-22 18:22-18:35 CST: booted, Clash 19.32.4
+loaded (hardware GL, no protector error), replay 12/12320423178 fetched; wd2 stopped afterwards.
+
+**Fleet incident seen during that window (not caused by wd2, not touched):** from 18:10 CST the fleet's adb
+`screencap` timed out; at 18:24:35 the fleet daemon force-stopped its own Clash; at 18:26:17 its system_server was
+killed by the Android watchdog (blocked in AMS / display) and has boot-looped every ~74 s since, main thread stuck
+in `SurfaceControl.nativeGetCompositionDataspaces` (fleet SurfaceFlinger/hwcomposer hung). It kept looping after
+wd2 was stopped (18:35). Recovery needs a fleet session restart, which is the fleet owner's call.
