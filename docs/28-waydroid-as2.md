@@ -216,6 +216,18 @@ Screenshots: `wd2.py sh "screencap -p /data/local/tmp/s.png"`, then `sudo cat ~/
 Relay flow and the sudo sampler: ClashReplays/LINUX_RUNTIME.md. 2026-11-22 18:22-18:35 CST: booted, Clash 19.32.4
 loaded (hardware GL, no protector error), replay 12/12320423178 fetched; wd2 stopped afterwards.
 
+**Continuous 19.32.4 collection (from 2026-11-22 19:35 CST).** wd2 is no longer left running: the driver boots it
+only for a ~35 s login (caps memory.high 2G / max 3G / swap 2G: ~2.0 GB cgroup, 1.3 GB anon, vs 4.8 GB uncapped),
+the relay then *detaches* the session (sends the game's keep-alives itself), and wd2 is stopped, so a fetching session
+costs only the relay process (~35 MB for all workers). Logins wait for MemAvailable >= 32 GB (stop floor 28.5 GB +
+3.5 GB). A root watchdog (`wd2-watchdog`) stops our containers on a fleet system_server pid change, the binder
+"undelivered TRANSACTION_COMPLETE" signature or a fleet binder-error burst, and alerts `~/clashllm-data/alerts.jsonl`.
+```
+cd ~/ce_replayfetch && ops/strixhalo/waydroid2/replays19x.sh status | start | stop [all]
+```
+Data `~/ClashData/replays19x` (archive + extraction cursor, shard 12 ascending from 12320431703; driver.jsonl,
+watchdog.jsonl). Details: ClashReplays/LINUX_RUNTIME.md ("Collector"). Never pause it without asking the user.
+
 **Fleet incident seen during that window (not caused by wd2, not touched):** from 18:10 CST the fleet's adb
 `screencap` timed out; at 18:24:35 the fleet daemon force-stopped its own Clash; at 18:26:17 its system_server was
 killed by the Android watchdog (blocked in AMS / display) and has boot-looped every ~74 s since, main thread stuck
