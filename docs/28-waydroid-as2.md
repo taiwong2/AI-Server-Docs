@@ -228,6 +228,14 @@ cd ~/ce_replayfetch && ops/strixhalo/waydroid2/replays19x.sh status | start | st
 Data `~/ClashData/replays19x` (archive + extraction cursor, shard 12 ascending from 12320431703; driver.jsonl,
 watchdog.jsonl). Details: ClashReplays/LINUX_RUNTIME.md ("Collector"). Never pause it without asking the user.
 
+**Scale-up (2026-11-22 21:20-22:40 CST).** All sessions now pace at 0.25 s (the relay floor; 20 sessions = 66k, 36 = 114k
+replays/h, 0 rate limits); the extraction cursor and archive index are WAL (`synchronous=NORMAL`) since the
+FULL-fsync commit per ID had capped the total. The config lists 40 relay workers (ports 19339, 19361-19399); the
+driver (`DRIVER_ARGS="--sessions N --make-guests"`) makes a fresh guest account in wd2 for any worker below N without
+an account slot (age gate, ToS, privacy recognised from screencap pixels), so adding accounts is a driver restart,
+not a serve restart. The serve unit is MemoryMax 2G / CPUQuota 200%; its relay cipher runs in numpy since 22:33
+(it had become CPU-bound at ~36 sessions). Numbers per step: ClashReplays/LINUX_RUNTIME.md ("0.25 s and more accounts").
+
 **Fleet incident seen during that window (not caused by wd2, not touched):** from 18:10 CST the fleet's adb
 `screencap` timed out; at 18:24:35 the fleet daemon force-stopped its own Clash; at 18:26:17 its system_server was
 killed by the Android watchdog (blocked in AMS / display) and has boot-looped every ~74 s since, main thread stuck
