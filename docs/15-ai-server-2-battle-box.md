@@ -331,3 +331,10 @@ engine start and left the iGPU idle 7 h. Since ClashEngineering d2e527b:
 - Audit: `python3 tools/wt_data.py audit ~/ce_*/ --no-hash`. 2026-10-14: 22 of 138 AS2 worktrees complete (most
   others lacked only the APK); every worktree of a live job or a pending backlog entry repaired (links added only).
 
+
+## Roblox (Sober) — installed 2026-11-23
+
+Roblox has no native Linux client. Installed **Sober** (`org.vinegarhq.Sober`, Flathub, system-wide) which runs the
+Android Roblox client on Linux. Added `flatpak` + the `flathub` remote; runtimes took ~2 GB. Needs a display to run:
+the box is headless, so launch it inside a sway/weston session (e.g. headless sway + wayvnc) with
+`flatpak run org.vinegarhq.Sober`. Remove: `sudo flatpak uninstall -y org.vinegarhq.Sober && sudo flatpak uninstall -y --unused`.
