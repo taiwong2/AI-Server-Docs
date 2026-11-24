@@ -338,3 +338,9 @@ engine start and left the iGPU idle 7 h. Since ClashEngineering d2e527b:
 ("olababy home", 192.168.1.91) metric 600 in `60-wifi-home.yaml` as fallback. Wi-Fi power save off
 (`/etc/udev/rules.d/70-wifi-powersave-off.rules`). Before: Wi-Fi primary, 15 ms avg / 208 ms spikes to router, 6 MB/s;
 ethernet 0.3 ms, 15-18 MB/s. Old configs: `/root/netplan-bak/`.
+
+## Audio: webcam mic (2026-11-24)
+
+eMeet C960 webcam mic is the default source. The user systemd manager predates `taiwong` joining `audio`, so
+WirePlumber could not open USB sound cards; fixed without restarting user@1000 (which would kill Clash services) via
+an ACL udev rule `/etc/udev/rules.d/71-snd-taiwong.rules`. The onboard "internal mic" input is static/noise only.
