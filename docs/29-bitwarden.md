@@ -41,34 +41,3 @@ tmux), wait for the user's code, and type it into that same prompt.
 
 The vault was empty before that (it was set up 2026-08-09 but never filled). Add new service credentials here instead of
 loose files on the servers.
-
-## Contents (2026-11-23)
-
-Secure notes (exact file contents; the `source_path` field records where each file lives on Tai's Mac):
-
-| Item | Restores |
-|---|---|
-| Olababy: CI storefront env (ci.env) | `~/.config/olababy/ci.env` |
-| Olababy: V2 app .env | `~/Documents/olababy-workspace/OlababyWebsiteV2/.env` |
-| Olababy: legacy V1 app .env | `~/Documents/OlababyWebsite/.env` |
-| GSC MCP: OAuth client (client.json) | `~/.config/gsc-mcp/client.json` |
-| GSC MCP: token (pr@olababy.us) | `~/.config/gsc-mcp/token.json` |
-| KP: Discord bot / RankerFox / Oxygen deploy token / Google OAuth env / Shopify admin app / Shopify theme access / Shopify admin token / passkey demo | `~/.config/kp-credentials/...` |
-| KP: hydrogen-spike .env | `~/Documents/korean-pharmacy-workspace/hydrogen-spike/.env` |
-| RankerFox: credentials (seo-research skill) | `~/.config/rankerfox/credentials.json` |
-| AI Server: model proxy API key | `~/.config/ai-server/model_proxy_api_key` |
-
-Not stored: the Bitwarden master password (circular), tool-managed sessions (gcloud, gh, Shopify CLI, MCP OAuth), cookie
-sessions. Pending: "Olababy: Oxygen deploy token" (the Mac's `~/.config/olababy/oxygen.env` holds a placeholder).
-
-## Mac helper: `vault`
-
-`~/.local/bin/vault` wraps the AS1 CLI over ssh (unlock, act, lock):
-
-```
-vault list [search]
-vault get "<item>"                 # notes (secure note) or password (login), exact bytes
-vault restore "<item>" <file>      # write back, mode 600
-vault put "<item>" <file>          # create or update a secure note
-```
-
