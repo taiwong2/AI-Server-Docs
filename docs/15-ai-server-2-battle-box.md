@@ -331,3 +331,10 @@ engine start and left the iGPU idle 7 h. Since ClashEngineering d2e527b:
 - Audit: `python3 tools/wt_data.py audit ~/ce_*/ --no-hash`. 2026-10-14: 22 of 138 AS2 worktrees complete (most
   others lacked only the APK); every worktree of a live job or a pending backlog entry repaired (links added only).
 
+
+## Network: ethernet is primary (2026-11-23)
+
+`enp97s0` (1 GbE, 192.168.1.92) route-metric 100 in `/etc/netplan/00-installer-config.yaml`; Wi-Fi `wlp99s0`
+("olababy home", 192.168.1.91) metric 600 in `60-wifi-home.yaml` as fallback. Wi-Fi power save off
+(`/etc/udev/rules.d/70-wifi-powersave-off.rules`). Before: Wi-Fi primary, 15 ms avg / 208 ms spikes to router, 6 MB/s;
+ethernet 0.3 ms, 15-18 MB/s. Old configs: `/root/netplan-bak/`.
